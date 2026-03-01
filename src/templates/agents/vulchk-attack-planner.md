@@ -141,6 +141,8 @@ testable attack vector:
 | SSRF pattern (CODE-*) | SSRF probe with callback URL |
 | Hardcoded secret (SEC-*) | Use discovered credentials for access |
 | Missing CSRF token (CODE-*) | CSRF forgery attempt |
+| MongoDB operator injection pattern (CODE-*) | NoSQL $ne/$regex injection probe on login/search endpoint |
+| Supabase key in source (SEC-*) | Supabase RLS bypass check via anon key + /rest/v1/ tables |
 
 ### Step 3: Business Logic Analysis
 
@@ -244,9 +246,11 @@ Based on intensity level and discovered attack surface, generate the plan.
 - [ ] SQL injection detection on: {list data-accepting endpoints}
   - Error-based detection (single quote, double quote)
   - Boolean-based detection (AND 1=1 vs AND 1=2)
-  - Time-based blind detection (SLEEP/pg_sleep)
+  - Time-based blind detection: MySQL SLEEP(5), MSSQL WAITFOR DELAY, PostgreSQL pg_sleep(5), SQLite RANDOMBLOB
 - [ ] Command injection probes on: {list endpoints accepting system-like params}
 - [ ] SSTI detection on: {list template-rendered inputs}
+- [ ] NoSQL operator injection (if MongoDB/NoSQL detected): $ne/$regex probe on JSON login/search endpoints
+- [ ] Supabase checks (if Supabase detected): anon key exposure, RLS bypass via /rest/v1/, service_role key in source
 
 ### Phase 3: Authentication & Authorization
 - [ ] Default credential testing on: {login endpoints}
@@ -421,6 +425,10 @@ For each identified attack vector, create a structured scenario entry:
 
 Number scenarios sequentially as AS-001, AS-002, etc.
 Map each scenario to the appropriate phase based on the test type.
+
+**Phase assignment guidance for database/BaaS scenarios**:
+- NoSQL injection detection scenarios → `Phase: injection`
+- Supabase RLS bypass scenarios → `Phase: injection`
 
 #### 6c. Write Attack Plan
 
