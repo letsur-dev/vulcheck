@@ -106,12 +106,12 @@ DATABASE_URL\s*=\s*["']?[a-z]+:\/\/
 SUPABASE_SERVICE_ROLE_KEY\s*=\s*["']?eyJ[A-Za-z0-9._-]+
 
 # Supabase — JWT signing secret (token forgery, Critical)
-SUPABASE_JWT_SECRET\s*=\s*["'][^"']{8,}["']
+SUPABASE_JWT_SECRET\s*=\s*["']?[^"'\s]{8,}["']?
 
 # Firebase Admin SDK — service account private key (Critical)
-"private_key":\s*"-----BEGIN (RSA )?PRIVATE KEY
+"private_key":\s*"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY
 
-# Firebase Admin SDK — service account email (High)
+# Firebase Admin SDK — service account email (Informational — only escalate if private_key co-located)
 "client_email":\s*"[^"]*@[^"]*\.iam\.gserviceaccount\.com
 ```
 
@@ -119,7 +119,7 @@ Severity for BaaS patterns:
 - `SUPABASE_SERVICE_ROLE_KEY` → **Critical** (full RLS bypass)
 - `SUPABASE_JWT_SECRET` → **Critical** (JWT forgery)
 - Firebase admin SDK private key → **Critical**
-- Firebase admin SDK client_email → **High** (combined key exposure risk)
+- Firebase admin SDK client_email → **Informational** (not sensitive alone; escalate to Critical only if private_key is found in the same file)
 
 ### Step 4: Check Frontend Exposure
 
