@@ -439,12 +439,17 @@ flowchart TD
 | 패턴 | 심각도 | 이유 |
 |------|--------|------|
 | `SUPABASE_SERVICE_ROLE_KEY` | **Critical** | RLS 전체 우회 가능 |
-| `SUPABASE_JWT_SECRET` | **Critical** | JWT 위조 가능 |
-| Firebase Admin SDK `private_key` | **Critical** | Firebase 서비스 전체 제어 |
-| Firebase Admin SDK `client_email` | **High** | private_key 함께 노출 시 완전한 admin SDK 접근 |
+| `SUPABASE_JWT_SECRET` (quoted 또는 unquoted) | **Critical** | JWT 위조 가능 |
+| Firebase Admin SDK `private_key` (RSA/EC/DSA/OPENSSH) | **Critical** | Firebase 서비스 전체 제어 |
+| Firebase Admin SDK `client_email` | **Informational** | 단독 노출은 민감하지 않음; 같은 파일에 private_key가 있을 때만 Critical로 상향 |
 
 .gitignore 검사 항목에 `*firebase-adminsdk*.json`, `supabase/.env` 추가.
 파일 존재 검사 항목에 `*firebase-adminsdk*.json` 추가.
+
+**패턴 상세 변경 이력 (v2.2)**:
+- Firebase `private_key` 정규식: `(RSA )?` → `(RSA |EC |DSA |OPENSSH )?` — EC/DSA/OPENSSH 키 커버리지 추가
+- `SUPABASE_JWT_SECRET` 정규식: 따옴표 필수 → 따옴표 선택적 (`["']?`) — `.env` 파일의 unquoted 값 탐지
+- `client_email` 심각도: `High` → `Informational` — 단독으로는 민감하지 않음
 
 ## 서브에이전트 4: Git History Auditor
 

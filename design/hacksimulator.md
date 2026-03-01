@@ -401,6 +401,8 @@ flowchart TD
 | SSRF 패턴 (CODE-*) | 콜백 URL로 SSRF 프로브 |
 | 하드코딩된 시크릿 (SEC-*) | 발견된 자격 증명으로 접근 |
 | CSRF 토큰 누락 (CODE-*) | CSRF 위조 시도 |
+| MongoDB operator injection 패턴 (CODE-*) | login/search 엔드포인트에 NoSQL `$ne`/`$regex` 프로브 |
+| Supabase 키 소스 노출 (SEC-*) | anon key로 `/rest/v1/` 테이블 RLS bypass 확인 |
 
 ### 비즈니스 로직 취약점 공격 시나리오
 
@@ -547,15 +549,15 @@ attack-executor는 **모든 HTTP 응답**에서 다음 토큰을 명시적으로
 
 | 단계 | 내용 |
 |------|------|
-| **3b 확장** (Multi-DB SQLi) | MySQL `SLEEP(5)`, MSSQL `WAITFOR DELAY`, PostgreSQL `pg_sleep(5)`, SQLite `RANDOMBLOB` 순차 시도. elapsed ≥ 5초이면 해당 DB 종류의 time-based SQLi로 보고 |
-| **3l** (NoSQL 인젝션) | MongoDB `$ne`/`$regex` operator injection으로 인증 우회 탐지. Elasticsearch `/_cat/indices` 노출 확인. Firebase `.json` 엔드포인트 200 여부 확인 |
-| **3m** (Supabase 검사) | `SUPABASE_DETECTED` 플래그로 PostgREST/Supabase 환경 탐지. anon key·service_role key 소스 노출 확인. anon key로 RLS 미적용 테이블 HTTP 200 탐지. 스토리지 공개 버킷 열거 |
+| **3b 확장** (Multi-DB SQLi) | 실행 전 기준 레이턴시(BASELINE) 측정 후 delta 기반 비교. MySQL `SLEEP(5)`, MSSQL `WAITFOR DELAY %270%3A0%3A5%27` (URL 인코딩), PostgreSQL `pg_sleep(5)` 단일 스테이트먼트 형태, SQLite `RANDOMBLOB(5MB)`. `(ELAPSED - BASELINE) ≥ 5`이면 `CONFIRMED:` 출력 |
+| **3l** (NoSQL 인젝션) | MongoDB: baseline 실패 응답 확인 후 `$ne` operator로 인증 우회 탐지; bypass 성공 시 획득 토큰 미사용. GET 파라미터는 `%24ne`/`%24regex` (셸 `$` 해석 방지). Elasticsearch: primary 도메인 + `:9200` 직접 포트 + `/es/`, `/search/` 경로 변형 탐지. Firebase: `.vulchkprobe.json` (존재하지 않는 경로)에 HTTP 상태 코드만 확인하여 실제 데이터 비노출 |
+| **3m** (Supabase 검사) | **단일 bash 블록** — `SUPABASE_DETECTED=false` 선언부터 `if [ "$SUPABASE_DETECTED" = "true" ]` 검사까지 같은 블록 (변수 소멸 방지). anon key는 변수명 컨텍스트 우선 추출, 실패 시 JWT 패턴으로 폴백 + 수동 확인 권고. service_role JWT는 base64 디코딩으로 `"role":"service_role"` role claim 검증 후 Critical 판정. RLS 검사는 HTTP 상태 + 응답 바디(`[{` 패턴) 동시 확인으로 빈 테이블과 RLS 적용 구분. 스토리지 버킷 열거는 anon key 있을 때만 실행 |
 
 **심각도 기준 (3m)**:
-- `service_role` key 소스 노출 → Critical (RLS 전체 우회)
-- anon key로 `/rest/v1/{table}` HTTP 200 → High (RLS 미설정)
-- 스토리지 공개 버킷 → Medium~High
-- anon key 소스 노출 (의도 불명확) → Low~Medium
+- `service_role` JWT with verified role claim 소스 노출 → **Critical**
+- anon key로 `/rest/v1/{table}` HTTP 200 + row data → **High** (RLS 미설정)
+- 스토리지 공개 버킷 → **Medium~High**
+- anon key 소스 노출 (변수 컨텍스트 불명확) → **Low~Medium**
 
 ---
 
