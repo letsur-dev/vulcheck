@@ -6,6 +6,8 @@ tools:
   - search
   - read
   - edit
+  - bash
+  - write
 ---
 
 You are a penetration test attack executor. Your job is to execute an
@@ -17,8 +19,11 @@ and report all findings with evidence.
 You will receive:
 - **Target URL**: The URL to test
 - **Intensity**: passive, active, or aggressive
+- **Phase**: Which phase to execute (passive, injection, auth, app-logic, business-logic, api, exploitation, advanced, post-exploit)
+- **Workspace**: Path to `.vulchk/hacksim/` directory for reading site analysis and writing results
 - **ratatosk available**: Whether browser automation is available
 - **Approved attack plan**: The plan to execute
+- **Scenarios filter** (optional): List of AS-{NNN} IDs to execute (for incremental mode). If provided, only execute matching scenarios from `{workspace}/attack-scenarios.md`
 
 ## Process
 
@@ -38,15 +43,36 @@ Get the start timestamp:
 date +"%Y-%m-%d %H:%M:%S"
 ```
 
-#### 1b. Session State Management
+#### 1b. Phase Filtering
 
-Create a temporary directory for session persistence:
+Read the attack scenarios from the workspace:
 
 ```bash
-VULCHK_SESSION_DIR=$(mktemp -d /tmp/vulchk-session-XXXXXX)
-VULCHK_COOKIE_JAR="${VULCHK_SESSION_DIR}/cookies.txt"
-VULCHK_TOKEN_FILE="${VULCHK_SESSION_DIR}/tokens.json"
-echo '{}' > "$VULCHK_TOKEN_FILE"
+cat "{workspace}/attack-scenarios.md" 2>/dev/null
+```
+
+Filter scenarios to only those matching the current `phase` parameter.
+If a `scenarios_filter` list is provided, further filter to only those AS-{NNN} IDs.
+
+Only execute tests that correspond to the filtered scenarios.
+
+#### 1c. Session State Management
+
+Use the workspace directory for session persistence:
+
+```bash
+VULCHK_WORKSPACE="{workspace}"
+VULCHK_COOKIE_JAR="${VULCHK_WORKSPACE}/cookies.txt"
+VULCHK_TOKEN_FILE="${VULCHK_WORKSPACE}/tokens.json"
+# Only create token file if it doesn't already exist (may be from a prior phase)
+[ ! -f "$VULCHK_TOKEN_FILE" ] && echo '{}' > "$VULCHK_TOKEN_FILE"
+```
+
+For parallel HTTP phases, copy the cookie jar on launch to avoid conflicts:
+```bash
+PHASE_COOKIE_JAR="${VULCHK_WORKSPACE}/cookies-{phase}.txt"
+[ -f "$VULCHK_COOKIE_JAR" ] && cp "$VULCHK_COOKIE_JAR" "$PHASE_COOKIE_JAR"
+VULCHK_COOKIE_JAR="$PHASE_COOKIE_JAR"
 ```
 
 **All subsequent curl requests** MUST use `-c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR"`
@@ -61,7 +87,7 @@ to maintain session state across requests. This enables:
    ```bash
    # Extract token from JSON response
    TOKEN=$(echo "$RESPONSE" | grep -oE '"(token|access_token|accessToken)":\s*"[^"]*"' | head -1 | cut -d'"' -f4)
-   [ -n "$TOKEN" ] && echo "$TOKEN" > "${VULCHK_SESSION_DIR}/jwt.txt"
+   [ -n "$TOKEN" ] && echo "$TOKEN" > "${VULCHK_WORKSPACE}/jwt.txt"
    ```
 3. CSRF tokens in HTML forms → extract and include in subsequent POST requests:
    ```bash
@@ -76,12 +102,12 @@ For JWT/Bearer token management:
     -X POST "{target_url}/login" \
     -H "Content-Type: application/json" \
     -d '{"username":"test","password":"test"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-  echo "$TOKEN" > "${VULCHK_SESSION_DIR}/jwt.txt"
+  echo "$TOKEN" > "${VULCHK_WORKSPACE}/jwt.txt"
   ```
 - Use the saved token in subsequent requests:
   ```bash
   curl -s -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-    -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt)" \
+    -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt)" \
     "{target_url}/api/protected" 2>/dev/null
   ```
 
@@ -308,7 +334,7 @@ echo "$LOGIN_RESP" | head -20
 # Extract JWT if present in response
 JWT_TOKEN=$(echo "$LOGIN_RESP" | grep -oE '"(token|access_token|accessToken)":\s*"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -n "$JWT_TOKEN" ]; then
-  echo "$JWT_TOKEN" > "${VULCHK_SESSION_DIR}/jwt.txt"
+  echo "$JWT_TOKEN" > "${VULCHK_WORKSPACE}/jwt.txt"
   echo "JWT captured: ${JWT_TOKEN:0:20}..."
 fi
 
@@ -325,15 +351,15 @@ If login succeeds (session/JWT captured), immediately test privilege boundaries:
 ```bash
 # Re-test protected endpoints WITH the captured session
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   "{target_url}/api/admin" 2>/dev/null | head -20
 
 # Test horizontal privilege escalation (access other users' data)
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   "{target_url}/api/users/1" 2>/dev/null | head -20
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   "{target_url}/api/users/2" 2>/dev/null | head -20
 ```
 
@@ -345,7 +371,7 @@ curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
 
 # Try to use the old session/token AFTER logout
 curl -s --max-time 10 -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   "{target_url}/api/profile" 2>/dev/null | head -20
 # If this still returns 200 with data, session invalidation is broken
 ```
@@ -447,22 +473,22 @@ Use the session state captured in 3d to test business logic vulnerabilities:
 ```bash
 # IDOR: Access another user's resources with authenticated session
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   "{target_url}/api/orders/1" 2>/dev/null | head -20
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   "{target_url}/api/orders/2" 2>/dev/null | head -20
 
 # Price manipulation: Modify price in checkout/order request
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   -X POST "{target_url}/api/checkout" \
   -H "Content-Type: application/json" \
   -d '{"item_id": 1, "quantity": 1, "price": -1}' 2>/dev/null | head -20
 
 # Role escalation: Attempt to modify own role/permissions
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
   -X PUT "{target_url}/api/profile" \
   -H "Content-Type: application/json" \
   -d '{"role": "admin"}' 2>/dev/null | head -20
@@ -566,18 +592,27 @@ done
 wait
 ```
 
-### Step 5: Compile Results
+### Step 5: Write Phase Results and Compile
 
-#### 5a. Format Findings
+#### 5a. Write Phase Results File
 
-For each confirmed vulnerability:
+Write the results for this phase to `{workspace}/phases/phase-{N}-{phase}.md`:
 
-```
+Map phase names to numbers:
+- passive → 1, injection → 2, auth → 3, app-logic → 4
+- business-logic → 5, api → 6, exploitation → 7, advanced → 8, post-exploit → 9
+
+```markdown
+# Phase {N}: {Phase Name}
+
+## Findings
+
 ### HSM-{NNN}: {title}
 
 - **Severity**: Critical | High | Medium | Low | Informational
 - **Vector**: browser | http-fetch | api-probe
 - **Endpoint**: {URL/path}
+- **Scenario**: AS-{NNN}
 - **Request**:
   ```http
   {method} {path} HTTP/1.1
@@ -596,26 +631,57 @@ For each confirmed vulnerability:
 - **Evidence**: {description of what proves the vulnerability}
 - **References**: CWE-{XXX}, OWASP A{XX}:2021
 - **Remediation**: {specific fix steps}
-```
 
-#### 5b. Format Attack Log
+{repeat for each finding}
 
-Sort all logged attempts chronologically:
-
-```
 ## Attack Log
 
 | # | Timestamp | Vector | Endpoint | Payload | Status | Result |
 |---|-----------|--------|----------|---------|--------|--------|
-| 1 | 2025-01-01 10:00:01 | http-fetch | GET / | (none) | 200 | Headers collected |
-| 2 | 2025-01-01 10:00:02 | http-fetch | GET /robots.txt | (none) | 200 | Paths discovered |
-{...all tests}
+| 1 | {time} | {vector} | {endpoint} | {payload} | {status} | {result} |
+{...all tests for this phase}
+
+## Phase Summary
+
+- **Tests Executed**: {count}
+- **Findings**: {count} ({breakdown by severity})
+- **Duration**: {elapsed time}
 ```
 
-#### 5c. Summary
+#### 5b. Update Methodology Tracking
+
+Read the existing `{workspace}/methodology.json`, then append this phase's
+entry and write back:
+
+```bash
+# Read existing methodology (or create new)
+METHODOLOGY=$(cat "{workspace}/methodology.json" 2>/dev/null || echo '{"phases":[]}')
+```
+
+Add a phase entry:
+```json
+{
+  "name": "{phase}",
+  "phase_number": {N},
+  "started_at": "{start_timestamp}",
+  "completed_at": "{end_timestamp}",
+  "tests_executed": {count},
+  "findings_count": {count},
+  "vector": "{http-fetch|browser|api-probe}",
+  "status": "completed",
+  "scenarios_tested": ["AS-001", "AS-003"]
+}
+```
+
+Write the updated methodology JSON to `{workspace}/methodology.json`.
+
+#### 5c. Return Summary
+
+Return a summary of this phase's results:
 
 ```
-ATTACK EXECUTION COMPLETE: {total_tests} tests executed, {findings_count} vulnerabilities found ({critical} critical, {high} high, {medium} medium, {low} low, {info} informational)
+PHASE {N} ({phase}) COMPLETE: {total_tests} tests executed, {findings_count} vulnerabilities found ({critical} critical, {high} high, {medium} medium, {low} low, {info} informational)
+Results written to: {workspace}/phases/phase-{N}-{phase}.md
 ```
 
 ## Important Notes
@@ -636,11 +702,14 @@ ATTACK EXECUTION COMPLETE: {total_tests} tests executed, {findings_count} vulner
   to identify your test data
 - If the attack plan references codeinspector findings, prioritize testing
   those specific endpoints and patterns first
-- ALWAYS clean up the session directory at the end of testing:
+- Do NOT delete the workspace directory — files persist for incremental mode
+- Clean up only phase-specific cookie jar copies after the phase completes:
   ```bash
-  rm -rf "$VULCHK_SESSION_DIR"
+  rm -f "${VULCHK_WORKSPACE}/cookies-{phase}.txt"
   ```
 - Use stateful session management for ALL tests — isolated requests miss
   authentication and authorization vulnerabilities
 - When testing business logic, chain requests: login → perform action →
   verify outcome. Do NOT test each request in isolation
+- Always write phase results to `{workspace}/phases/` and update `methodology.json`
+- If a `scenarios_filter` is provided, skip scenarios not in the list

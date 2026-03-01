@@ -137,6 +137,53 @@ describe('template validation', () => {
         const content = fse.readFileSync(skillPath, 'utf-8');
         expect(content).toContain('Approve this attack plan');
       });
+
+      it('contains workspace initialization', () => {
+        const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
+        const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('mkdir -p .vulchk/hacksim');
+        expect(content).toContain('methodology.json');
+      });
+
+      it('contains session detection', () => {
+        const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
+        const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('session.json');
+        expect(content).toContain('Session Detection');
+      });
+
+      it('contains incremental mode logic', () => {
+        const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
+        const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('Incremental Mode');
+        expect(content).toContain('git diff');
+        expect(content).toContain('scenarios_filter');
+      });
+
+      it('contains Two-Pass execution model', () => {
+        const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
+        const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('Pass 1');
+        expect(content).toContain('Pass 2');
+        expect(content).toContain('Pass 3');
+        expect(content).toContain('Two-Pass Model');
+      });
+
+      it('contains methodology section in report template', () => {
+        const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
+        const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('{Methodology}');
+        expect(content).toContain('{Execution Summary}');
+        expect(content).toContain('{Attack Scenario Coverage}');
+        expect(content).toContain('{Tools Used}');
+      });
+
+      it('reads phase files for report assembly', () => {
+        const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
+        const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('Collect Phase Results');
+        expect(content).toContain('.vulchk/hacksim/phases/');
+      });
     });
 
     describe('vulchk-codeinspector specific', () => {
@@ -270,6 +317,64 @@ describe('template validation', () => {
       expect(content).toContain('**Endpoint**');
       expect(content).toContain('**Evidence**');
       expect(content).toContain('**Remediation**');
+    });
+
+    it('attack planner has bash and write tools', () => {
+      const content = fse.readFileSync(
+        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-planner.md'),
+        'utf-8'
+      );
+      expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+bash/);
+      expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+write/);
+    });
+
+    it('attack executor has bash and write tools', () => {
+      const content = fse.readFileSync(
+        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
+        'utf-8'
+      );
+      expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+bash/);
+      expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+write/);
+    });
+
+    it('attack planner writes persistent site analysis and scenarios files', () => {
+      const content = fse.readFileSync(
+        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-planner.md'),
+        'utf-8'
+      );
+      expect(content).toContain('site-analysis.md');
+      expect(content).toContain('attack-scenarios.md');
+      expect(content).toContain('attack-plan.md');
+      expect(content).toContain('AS-001');
+    });
+
+    it('attack executor supports phase-based execution', () => {
+      const content = fse.readFileSync(
+        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
+        'utf-8'
+      );
+      expect(content).toContain('**Phase**');
+      expect(content).toContain('**Workspace**');
+      expect(content).toContain('scenarios_filter');
+      expect(content).toContain('methodology.json');
+    });
+
+    it('attack executor writes results to phase files', () => {
+      const content = fse.readFileSync(
+        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
+        'utf-8'
+      );
+      expect(content).toContain('phase-{N}-{phase}.md');
+      expect(content).toContain('Phase Summary');
+    });
+
+    it('attack executor uses workspace instead of /tmp/ for session state', () => {
+      const content = fse.readFileSync(
+        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
+        'utf-8'
+      );
+      expect(content).not.toContain('/tmp/vulchk-session');
+      expect(content).toContain('VULCHK_WORKSPACE');
     });
   });
 });
