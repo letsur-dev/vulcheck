@@ -49,7 +49,6 @@ always performed regardless of intensity level (in full mode).
 
 #### 1a. HTTP Header Analysis
 
-Use Bash:
 ```bash
 curl -sI --max-time 10 "{target_url}" 2>/dev/null
 ```
@@ -67,7 +66,6 @@ Extract and analyze:
 
 #### 1b. Technology Fingerprinting
 
-Use Bash:
 ```bash
 # Check common discovery endpoints
 curl -s --max-time 5 "{target_url}/robots.txt" 2>/dev/null | head -50
@@ -154,55 +152,28 @@ Analyze the target to classify its business domain:
 | Content Platform | Access control, download limits, subscription tiers |
 | API Service | Rate limits, quota management, key permissions |
 
-#### 3b. Business Logic Attack Scenarios
+#### 3b. Business Logic Attack Categories
 
-For each identified business flow, consider these attack categories:
+For each identified business flow, consider which of these apply:
 
-**Price/Value Manipulation**:
-- Modify price, quantity, or discount parameters in requests
-- Apply expired or invalid coupon codes
-- Change currency or unit fields
-- Set negative quantities or amounts
-- Skip payment steps in multi-step checkout
-
-**IDOR (Insecure Direct Object Reference)**:
-- Access other users' resources by changing ID parameters
-- Enumerate sequential IDs to discover hidden resources
-- Use one user's credentials to modify another user's data
-- Access admin-only endpoints with regular user tokens
-
-**Workflow Bypass**:
-- Skip required steps in multi-step processes (e.g., email verification)
-- Re-use one-time tokens or codes multiple times
-- Complete actions out of the expected order
-- Manipulate state parameters (status, role, approved) directly
-
-**Race Conditions**:
-- Simultaneous redemption of limited-use vouchers
-- Concurrent balance transfers exceeding available funds
-- Double-submit on state-changing operations
-
-**Privilege Escalation**:
-- Modify role or permission fields in profile update requests
-- Access admin API endpoints with regular user authentication
-- Escalate from free to paid tier without payment
-
-**Rate Limit Bypass**:
-- Rotate headers (X-Forwarded-For) to bypass IP-based limits
-- Use different API keys or session tokens
-- Chunk requests to stay under per-minute thresholds
+- **Price/Value Manipulation** — modify numeric fields (price, quantity, discount) to invalid values
+- **IDOR** — change ID parameters to access other users' resources
+- **Workflow Bypass** — skip required steps, reuse one-time tokens, or manipulate state fields directly
+- **Race Conditions** — concurrent requests on limited-use operations (vouchers, transfers)
+- **Privilege Escalation** — inject role/permission fields in update requests; access admin endpoints with regular user tokens
+- **Rate Limit Bypass** — rotate X-Forwarded-For, use different tokens to exceed thresholds
 
 #### 3c. Generate Business Logic Test Cases
 
-For each identified business flow, generate specific test cases:
+For each identified business flow, generate test cases and **immediately convert
+each one into an AS-{NNN} entry** in the attack-scenarios.md output (Step 6b).
+Do not produce an intermediate table — write scenarios directly to the file.
 
-```
-| # | Business Flow | Attack Scenario | Expected Behavior | Test Method |
-|---|--------------|-----------------|-------------------|-------------|
-| 1 | Checkout | Set price=-1 in POST /checkout | Should reject | Modify request body |
-| 2 | Profile | GET /api/users/OTHER_ID | Should deny access | Change ID param |
-| 3 | Coupon | Apply same code 100 times | Should reject after 1st | Repeat request |
-```
+Each business logic scenario must specify:
+- `Phase: business-logic`
+- The exact endpoint from your API discovery
+- The parameter to manipulate and the invalid value to test
+- Whether browser automation is needed
 
 ### Step 4: Map Attack Surface
 
@@ -384,10 +355,10 @@ Write to `{workspace}/site-analysis.md`:
 - **Versions**: {detected version numbers}
 
 ## CSS Selectors
-- **Login Forms**: {CSS selectors for login forms}
-- **Search Inputs**: {CSS selectors for search inputs}
-- **Navigation**: {CSS selectors for nav elements}
-- **File Upload**: {CSS selectors for upload inputs}
+*(Only populate if `ratatosk available: yes` — used exclusively for browser automation)*
+- **Login Forms**: {CSS selectors for login forms, or "n/a"}
+- **Search Inputs**: {CSS selectors for search inputs, or "n/a"}
+- **File Upload**: {CSS selectors for upload inputs, or "n/a"}
 
 ## API Structure
 | Endpoint | Method | Auth Required | Parameters |

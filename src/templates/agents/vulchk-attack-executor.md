@@ -5,7 +5,6 @@ model: sonnet
 tools:
   - search
   - read
-  - edit
   - bash
   - write
 ---
@@ -58,62 +57,42 @@ Only execute tests that correspond to the filtered scenarios.
 
 #### 1c. Session State Management
 
-Use the workspace directory for session persistence:
+> **Variable substitution**: Throughout this document, replace every `{workspace}`,
+> `{phase}`, `{target_url}`, and other `{placeholder}` with the actual values
+> from your inputs before running any bash command.
+
+Set up session state using the workspace directory:
 
 ```bash
-VULCHK_WORKSPACE="{workspace}"
-VULCHK_COOKIE_JAR="${VULCHK_WORKSPACE}/cookies.txt"
+VULCHK_WORKSPACE="<workspace path from inputs>"
 VULCHK_TOKEN_FILE="${VULCHK_WORKSPACE}/tokens.json"
-# Only create token file if it doesn't already exist (may be from a prior phase)
 [ ! -f "$VULCHK_TOKEN_FILE" ] && echo '{}' > "$VULCHK_TOKEN_FILE"
+
+# Always use a phase-specific cookie jar — prevents parallel write conflicts
+VULCHK_COOKIE_JAR="${VULCHK_WORKSPACE}/cookies-<phase>.txt"
+# Seed from merged cookies if available (populated after Pass 1 completes)
+[ -f "${VULCHK_WORKSPACE}/cookies.txt" ] && cp "${VULCHK_WORKSPACE}/cookies.txt" "$VULCHK_COOKIE_JAR"
 ```
 
-For parallel HTTP phases, copy the cookie jar on launch to avoid conflicts:
-```bash
-PHASE_COOKIE_JAR="${VULCHK_WORKSPACE}/cookies-{phase}.txt"
-[ -f "$VULCHK_COOKIE_JAR" ] && cp "$VULCHK_COOKIE_JAR" "$PHASE_COOKIE_JAR"
-VULCHK_COOKIE_JAR="$PHASE_COOKIE_JAR"
-```
-
-**All subsequent curl requests** MUST use `-c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR"`
-to maintain session state across requests. This enables:
-- Cookie-based session tracking
-- Authentication state persistence
-- CSRF token extraction and reuse
+**All subsequent curl requests** MUST use `-c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR"`.
 
 **CRITICAL — State Extraction Rule**: After EVERY response, check for:
-1. `Set-Cookie` headers → automatically captured by `-c` flag
-2. `Authorization` / `Bearer` tokens in response body → extract and save:
-   ```bash
-   # Extract token from JSON response
-   TOKEN=$(echo "$RESPONSE" | grep -oE '"(token|access_token|accessToken)":\s*"[^"]*"' | head -1 | cut -d'"' -f4)
-   [ -n "$TOKEN" ] && echo "$TOKEN" > "${VULCHK_WORKSPACE}/jwt.txt"
-   ```
-3. CSRF tokens in HTML forms → extract and include in subsequent POST requests:
-   ```bash
-   CSRF=$(echo "$RESPONSE" | grep -oE 'name="csrf[^"]*"\s+value="[^"]*"' | head -1 | grep -oE 'value="[^"]*"' | cut -d'"' -f2)
-   ```
-Always include captured tokens in the next request's headers.
+1. `Set-Cookie` headers → automatically captured by the `-c` flag
+2. Auth tokens in response body → field names vary by API (`token`, `access_token`,
+   `authToken`, `id_token`, `jwt`, `bearer`, etc.). Save any discovered Bearer token
+   to `${VULCHK_WORKSPACE}/jwt.txt` for reuse in subsequent requests.
+3. CSRF tokens in HTML forms or `X-CSRF-Token` response headers → include in all
+   subsequent state-changing requests.
 
-For JWT/Bearer token management:
-- When a login response contains a token, save it:
-  ```bash
-  TOKEN=$(curl -s -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-    -X POST "{target_url}/login" \
-    -H "Content-Type: application/json" \
-    -d '{"username":"test","password":"test"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-  echo "$TOKEN" > "${VULCHK_WORKSPACE}/jwt.txt"
-  ```
-- Use the saved token in subsequent requests:
-  ```bash
-  curl -s -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-    -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt)" \
-    "{target_url}/api/protected" 2>/dev/null
-  ```
+Always propagate captured session state (cookies + token) to every subsequent request.
 
 ### Step 2: Execute Passive Reconnaissance Tests
 
-These tests are always executed regardless of intensity level.
+**Only execute this step if `phase == passive`.** For other phases, skip to
+the test sections in Step 3 or Step 4 that correspond to your phase's scenarios.
+
+These passive tests run once per scan. Duplicate execution from non-passive
+executor instances wastes time and produces redundant findings.
 
 #### 2a. Security Header Audit
 
@@ -311,14 +290,13 @@ Authentication tests MUST use session chaining. The goal is to test whether
 the application properly enforces access control across a sequence of requests.
 
 **Phase 1: Unauthenticated Access**
+
+Read `site-analysis.md` API Structure table. For each endpoint marked
+"Auth Required: yes", probe it WITHOUT authentication:
+
 ```bash
-# Test protected endpoints WITHOUT authentication
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  "{target_url}/api/users" 2>/dev/null | head -20
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  "{target_url}/api/admin" 2>/dev/null | head -20
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  "{target_url}/dashboard" 2>/dev/null | head -20
+curl -s --max-time 10 \
+  "{target_url}/{protected_endpoint_from_site_analysis}" 2>/dev/null
 ```
 
 **Phase 2: Login and Session Capture**
@@ -347,20 +325,20 @@ curl -s --max-time 10 \
 ```
 
 **Phase 3: Authenticated Privilege Testing**
-If login succeeds (session/JWT captured), immediately test privilege boundaries:
-```bash
-# Re-test protected endpoints WITH the captured session
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  "{target_url}/api/admin" 2>/dev/null | head -20
+If login succeeds (session/JWT captured), immediately test privilege boundaries.
+Use endpoints from `site-analysis.md`, not guessed paths:
 
-# Test horizontal privilege escalation (access other users' data)
+```bash
+AUTH="-H \"Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)\""
+
+# Re-test admin/privileged endpoints from site-analysis.md WITH captured session
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  "{target_url}/api/users/1" 2>/dev/null | head -20
+  $AUTH "{target_url}/{admin_or_privileged_endpoint}" 2>/dev/null
+
+# Horizontal privilege escalation: use YOUR session to access OTHER users' resources
+# Note the ID of your own resource first, then try adjacent IDs
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  "{target_url}/api/users/2" 2>/dev/null | head -20
+  $AUTH "{target_url}/{resource_endpoint}/{adjacent_user_id}" 2>/dev/null
 ```
 
 **Phase 4: Session Invalidation Check**
@@ -389,16 +367,17 @@ curl -s --max-time 10 "{target_url}/api/profile" \
 
 #### 3e. IDOR Testing
 
-For each resource endpoint with an ID parameter:
+For each resource endpoint with an ID parameter from `site-analysis.md`:
+
+1. Make an authenticated request to your own resource — note the resource ID.
+2. Try adjacent IDs (ID±1, ID±2) with your session.
+3. Try with no authentication at all.
 
 ```bash
-# Try accessing adjacent resource IDs
-curl -s --max-time 10 "{target_url}/api/users/1" 2>/dev/null | head -20
-curl -s --max-time 10 "{target_url}/api/users/2" 2>/dev/null | head -20
-
-# Try accessing with different or no authentication
-curl -s --max-time 10 "{target_url}/api/users/1" \
-  -H "Authorization: Bearer {other_user_token}" 2>/dev/null | head -20
+# Use the resource endpoint and ID pattern from site-analysis.md
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
+  "{target_url}/{resource_endpoint}/{adjacent_id}" 2>/dev/null
 ```
 
 #### 3f. SSRF Probing
@@ -468,34 +447,34 @@ rm -f /tmp/vulchk-test.txt
 
 #### 3k. Business Logic Testing
 
-Use the session state captured in 3d to test business logic vulnerabilities:
+Use the session from 3d. Execute the scenarios from `attack-scenarios.md`
+with `Phase: business-logic`. Do NOT re-test IDOR here — that is covered in 3e.
+
+Focus on value manipulation and workflow integrity:
 
 ```bash
-# IDOR: Access another user's resources with authenticated session
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  "{target_url}/api/orders/1" 2>/dev/null | head -20
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  "{target_url}/api/orders/2" 2>/dev/null | head -20
+AUTH="-H \"Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)\""
 
-# Price manipulation: Modify price in checkout/order request
+# Price/value manipulation: use the actual checkout/order endpoint from site-analysis.md
+# Try negative price, zero quantity, or out-of-range discount
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  -X POST "{target_url}/api/checkout" \
+  $AUTH -X POST "{target_url}/{checkout_or_order_endpoint}" \
   -H "Content-Type: application/json" \
-  -d '{"item_id": 1, "quantity": 1, "price": -1}' 2>/dev/null | head -20
+  -d '{"item_id": 1, "quantity": 1, "price": -1}' 2>/dev/null
 
-# Role escalation: Attempt to modify own role/permissions
+# Mass assignment / privilege escalation: inject extra fields in profile/update requests
 curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  -X PUT "{target_url}/api/profile" \
+  $AUTH -X PUT "{target_url}/{profile_or_update_endpoint}" \
   -H "Content-Type: application/json" \
-  -d '{"role": "admin"}' 2>/dev/null | head -20
+  -d '{"role": "admin", "is_admin": true, "plan": "enterprise"}' 2>/dev/null
+
+# Workflow bypass: attempt to access a later-step endpoint directly
+# (e.g., POST /checkout/confirm without completing /checkout/init)
+# Use the business flow endpoints from site-analysis.md
 ```
 
-Report as vulnerability if the server accepts invalid values or allows
-access to other users' resources without proper authorization checks.
+Report as vulnerability if the server accepts invalid values, skips required
+steps, or elevates privileges without proper validation.
 
 **If intensity is active, STOP HERE and go to Step 5.**
 
@@ -648,18 +627,13 @@ Map phase names to numbers:
 - **Duration**: {elapsed time}
 ```
 
-#### 5b. Update Methodology Tracking
+#### 5b. Write Phase Methodology Entry
 
-Read the existing `{workspace}/methodology.json`, then append this phase's
-entry and write back:
+Write this phase's timing data to a **dedicated file** to avoid parallel write
+conflicts. SKILL.md merges all per-phase files after all phases complete.
 
 ```bash
-# Read existing methodology (or create new)
-METHODOLOGY=$(cat "{workspace}/methodology.json" 2>/dev/null || echo '{"phases":[]}')
-```
-
-Add a phase entry:
-```json
+cat > "{workspace}/methodology-{phase}.json" << 'EOJSON'
 {
   "name": "{phase}",
   "phase_number": {N},
@@ -669,11 +643,13 @@ Add a phase entry:
   "findings_count": {count},
   "vector": "{http-fetch|browser|api-probe}",
   "status": "completed",
-  "scenarios_tested": ["AS-001", "AS-003"]
+  "scenarios_tested": ["{list of AS-NNN IDs actually tested}"]
 }
+EOJSON
 ```
 
-Write the updated methodology JSON to `{workspace}/methodology.json`.
+Do NOT read or write `methodology.json` directly — that is the merged file
+produced by SKILL.md after all phases finish.
 
 #### 5c. Return Summary
 

@@ -206,10 +206,11 @@ Initialize methodology tracking if not already present:
 
 ## Step 5: Check for Prior Code Inspector Reports
 
-Look for existing codeinspector reports:
+Look for the most recent codeinspector report:
 
 ```bash
-cat ./security-report/codeinspector.md 2>/dev/null | head -20
+LATEST_CI=$(ls -t ./security-report/codeinspector-*.md 2>/dev/null | head -1)
+[ -n "$LATEST_CI" ] && head -80 "$LATEST_CI"
 ```
 
 If a report exists, read it to extract findings. These will be passed to the
@@ -229,10 +230,12 @@ cat .vulchk/hacksim/session.json 2>/dev/null
 
 **If `session.json` exists AND `session.target` matches the current target URL**:
 
-1. Compare `session.commit` with the current HEAD:
+1. Check if this is a git repository and compare commits:
    ```bash
-   git rev-parse HEAD 2>/dev/null
+   CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null)
    ```
+   If `git rev-parse` fails (not a git repo), set mode to `FULL` and skip the
+   commit comparison — there is no reliable change detection without git.
 
 2. **If same commit**: Display message and stop:
    ```
@@ -270,8 +273,13 @@ Map changed files to affected phases:
 | Config/env files | Re-test passive (headers, CORS) |
 | Frontend/view files | Re-test XSS + browser phases |
 
-Generate a `scenarios_filter` list of AS-{NNN} IDs that need re-testing by
-matching changed files to the endpoints in `attack-scenarios.md`.
+To build the `scenarios_filter` list:
+1. Read `.vulchk/hacksim/attack-scenarios.md`
+2. For each scenario, check its `Target Endpoint` field
+3. Match endpoint paths to the changed route/controller files
+4. For changed auth middleware: include ALL scenarios with `Phase: auth`
+5. For changed model/schema files: include all scenarios with `Phase: injection` or `Phase: business-logic`
+6. Collect the AS-{NNN} IDs of all matched scenarios → this is `scenarios_filter`
 
 ### For external targets (non-localhost):
 
@@ -282,9 +290,19 @@ Compare current site fingerprint (HTTP headers, technology stack) with saved
 curl -sI --max-time 10 "{target_url}" 2>/dev/null
 ```
 
-- If fingerprint differs from saved analysis → run `FULL` mode
-- If fingerprint matches → display "No changes detected" but allow user to
-  force a full scan
+- If fingerprint differs (different `Server`, `X-Powered-By`, or technology stack) → set mode to `FULL`
+- If fingerprint matches → display the following and wait for user response:
+
+```
+## No Changes Detected
+
+The target fingerprint matches the previous scan (last run: {session.timestamp}).
+
+Run a full scan anyway? (yes/no)
+```
+
+If user answers "yes": set mode to `FULL` and proceed.
+If user answers "no": stop execution — results are up to date.
 
 ## Step 6: Launch Attack Planner
 
@@ -370,13 +388,17 @@ For incremental mode: Only launch phases that have affected scenarios (from `sce
 
 ### Pass 1 — HTTP-only phases (parallel)
 
-Launch multiple Task calls **in a single message** for phases that don't need
-browser automation. Each gets its own executor instance:
+Send **one message** with **multiple Task tool calls simultaneously** — do NOT
+send them in separate messages. Each call launches one executor instance for
+one phase. Only include phases that have scenarios in `attack-scenarios.md`
+(or all phases if `scenarios_filter` is not set).
+
+The 6 phases are: `passive`, `injection`, `auth`, `app-logic`, `business-logic`, `api`.
+
+For each phase, use this prompt:
 
 ```
-For each phase in [passive, injection, auth, app-logic, business-logic, api]:
-
-Launch agent: vulchk-attack-executor
+Agent: vulchk-attack-executor
 Prompt: "Execute phase '{phase}' of the approved attack plan:
 
 Target URL: {url}
@@ -384,21 +406,20 @@ Intensity: {passive|active|aggressive}
 Phase: {phase}
 Workspace: .vulchk/hacksim/
 ratatosk available: no (HTTP-only pass)
-{If incremental}: Scenarios filter: {list of AS-NNN IDs for this phase}
+{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs for this phase from Step 5c}
 
 Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
 Read site analysis from .vulchk/hacksim/site-analysis.md
 Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
-Update .vulchk/hacksim/methodology.json with phase timing
 
 Approved Attack Plan:
-{full attack plan from Step 7}
+{full attack plan content from .vulchk/hacksim/attack-plan.md}
 
 Execute only the tests for the '{phase}' phase.
 Log every attempt and return findings following your instructions."
 ```
 
-**All Pass 1 phases are launched in parallel** (multiple Task calls in one message).
+Wait for ALL Pass 1 Task calls to complete before proceeding.
 
 After all HTTP phases complete:
 - Merge cookie jars (union of all discovered cookies/tokens):
@@ -413,12 +434,15 @@ After all HTTP phases complete:
 ### Pass 2 — Browser phases (sequential)
 
 Only if `RATATOSK_AVAILABLE` is true. Run browser-dependent tests sequentially,
-using the merged session state from Pass 1:
+using the merged session state from Pass 1.
+
+Check which phases have `Browser Required: yes` scenarios in `attack-scenarios.md`.
+Run those phases one at a time, waiting for each to complete before starting the next.
+
+For each browser phase, use this prompt:
 
 ```
-For each phase that has browser-required scenarios (from attack-scenarios.md):
-
-Launch agent: vulchk-attack-executor
+Agent: vulchk-attack-executor
 Prompt: "Execute browser-based tests for phase '{phase}':
 
 Target URL: {url}
@@ -426,23 +450,40 @@ Intensity: {passive|active|aggressive}
 Phase: {phase}
 Workspace: .vulchk/hacksim/
 ratatosk available: yes
+{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs with 'Browser Required: yes' for this phase}
 
-{same structure as Pass 1 prompts}
+Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
+Read site analysis from .vulchk/hacksim/site-analysis.md
+Write results to .vulchk/hacksim/phases/phase-{N}-{phase}-browser.md
 
-Execute only browser-required tests (scenarios with 'Browser Required: yes').
-Use the merged session state from .vulchk/hacksim/cookies.txt"
+Approved Attack Plan:
+{full attack plan content from .vulchk/hacksim/attack-plan.md}
+
+Execute ONLY scenarios with 'Browser Required: yes'.
+Use the merged session state from .vulchk/hacksim/cookies.txt.
+Log every attempt and return findings following your instructions."
 ```
 
 **Pass 2 phases run sequentially** (one at a time, waiting for each to complete).
 
 ### Pass 3 — Exploitation phases (sequential, aggressive only)
 
-Only for `aggressive` intensity. These phases depend on findings from Pass 1/2:
+Only for `aggressive` intensity. These phases depend on confirmed findings from
+Pass 1/2 and run sequentially.
+
+Before launching each phase, read the Pass 1/2 result files to identify confirmed
+vulnerabilities:
+```bash
+ls .vulchk/hacksim/phases/phase-*.md 2>/dev/null
+```
+
+Extract confirmed findings (those where the result was "Confirmed" or equivalent).
+Pass these as the exploitation targets in the prompt.
+
+For each phase in `[exploitation, advanced, post-exploit]`, use this prompt:
 
 ```
-For each phase in [exploitation, advanced, post-exploit]:
-
-Launch agent: vulchk-attack-executor
+Agent: vulchk-attack-executor
 Prompt: "Execute exploitation phase '{phase}':
 
 Target URL: {url}
@@ -451,13 +492,21 @@ Phase: {phase}
 Workspace: .vulchk/hacksim/
 ratatosk available: {yes|no}
 
-Read findings from earlier phases in .vulchk/hacksim/phases/ to identify
-confirmed vulnerabilities for exploitation.
+Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
+Read site analysis from .vulchk/hacksim/site-analysis.md
+Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
 
-{same structure as Pass 1 prompts}"
+Confirmed vulnerabilities to exploit (from earlier phases):
+{list of HSM-{NNN} findings with severity, endpoint, and technique confirmed in Pass 1/2}
+
+Approved Attack Plan:
+{full attack plan content from .vulchk/hacksim/attack-plan.md}
+
+Exploit ONLY the confirmed vulnerabilities listed above.
+Log every attempt and return findings following your instructions."
 ```
 
-**Pass 3 phases run sequentially** because they depend on findings from earlier phases.
+**Pass 3 phases run sequentially** because each phase may depend on findings from the previous.
 
 ## Step 9: Generate Report
 
@@ -630,9 +679,39 @@ heading and label with the corresponding translation from the table.
 *{Generated by VulChk Hack Simulator}*
 ```
 
-## Step 10: Present Summary to User
+## Step 10: Finalize Session and Present Summary
 
-After writing the report, display a summary:
+### Update Session for Incremental Mode
+
+**Before displaying the summary**, write `.vulchk/hacksim/session.json` so that
+if context is exhausted after this point, the incremental state is still saved:
+
+```bash
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%SZ")
+REPORT_PATH="./security-report/hacksimulator-{timestamp}.md"
+
+cat > .vulchk/hacksim/session.json << EOF
+{
+  "target": "{target_url}",
+  "commit": "${COMMIT}",
+  "timestamp": "${TIMESTAMP}",
+  "intensity": "{selected intensity}",
+  "last_report": "${REPORT_PATH}"
+}
+EOF
+```
+
+Do NOT delete the workspace files — they are needed for future incremental runs.
+
+If local execution was used (Step 1, Case B option 1), stop the local server:
+```bash
+kill %1 2>/dev/null
+```
+
+### Present Summary to User
+
+Display a summary:
 
 ```
 ## Penetration Test Complete
@@ -658,36 +737,6 @@ Report saved to: ./security-report/hacksimulator-{timestamp}.md
 - Total tests executed: {count}
 - Successful exploits: {count}
 - Tests skipped: {count}
-```
-
-### Update Session for Incremental Mode
-
-After report generation, update `.vulchk/hacksim/session.json` so the next
-run can detect incremental mode:
-
-```bash
-# Get current commit hash and timestamp
-COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%SZ")
-```
-
-Write session.json:
-```json
-{
-  "target": "{target_url}",
-  "commit": "{COMMIT}",
-  "timestamp": "{TIMESTAMP}",
-  "intensity": "{selected intensity}",
-  "last_report": "./security-report/hacksimulator-{timestamp}.md"
-}
-```
-
-Do NOT delete the workspace files — they are needed for future incremental runs.
-
-If local execution was used (Step 1, Case B option 1), stop the local server:
-```bash
-# Kill the background process
-kill %1 2>/dev/null
 ```
 
 ## Redaction Rules
