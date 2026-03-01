@@ -1,7 +1,7 @@
 ---
 name: vulchk-git-history-auditor
 description: "Audit git history for accidentally committed secrets, API keys, passwords, tokens, and private keys across all commits."
-model: sonnet
+model: haiku
 tools:
   - search
   - read

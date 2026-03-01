@@ -18,8 +18,6 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'),
 const LANGUAGES = [
   { name: 'en', message: 'English' },
   { name: 'ko', message: '한국어 (Korean)' },
-  { name: 'ja', message: '日本語 (Japanese)' },
-  { name: 'zh', message: '中文 (Chinese)' },
 ];
 
 function printBanner() {

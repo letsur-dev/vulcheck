@@ -82,20 +82,18 @@ describe('template validation', () => {
           expect(content).toMatch(/allowed-tools:.*Task/);
         });
 
-        it('contains report language reference table', () => {
+        it('contains report language reference', () => {
           const content = fse.readFileSync(skillPath, 'utf-8');
           expect(content).toContain('Report Language Reference');
           expect(content).toContain('English (en)');
           expect(content).toContain('Korean (ko)');
-          expect(content).toContain('Japanese (ja)');
         });
 
-        it('contains severity labels by language', () => {
+        it('contains severity labels', () => {
           const content = fse.readFileSync(skillPath, 'utf-8');
-          expect(content).toContain('Severity Labels by Language');
+          expect(content).toContain('Severity Labels');
           expect(content).toContain('Critical');
           expect(content).toContain('치명적');
-          expect(content).toContain('致命的');
         });
 
         it('contains redaction rules', () => {
@@ -113,13 +111,12 @@ describe('template validation', () => {
     }
 
     describe('vulchk-hacksimulator specific', () => {
-      it('contains intensity labels by language', () => {
+      it('contains intensity labels', () => {
         const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
         const content = fse.readFileSync(skillPath, 'utf-8');
-        expect(content).toContain('Intensity Labels by Language');
+        expect(content).toContain('Intensity Labels');
         expect(content).toContain('Passive');
         expect(content).toContain('패시브');
-        expect(content).toContain('パッシブ');
       });
 
       it('contains authorization warning section', () => {
@@ -131,7 +128,8 @@ describe('template validation', () => {
       it('contains ratatosk-cli detection', () => {
         const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
         const content = fse.readFileSync(skillPath, 'utf-8');
-        expect(content).toContain('which ratatosk');
+        expect(content).toContain('npm list');
+        expect(content).toContain('@letsur-dev/ratatosk-cli');
       });
 
       it('requires attack plan approval', () => {
@@ -197,10 +195,10 @@ describe('template validation', () => {
           expect(fm.description).toBeTruthy();
         });
 
-        it('has model field set to sonnet', () => {
+        it('has model field set to sonnet or haiku', () => {
           const content = fse.readFileSync(agentPath, 'utf-8');
           const fm = parseFrontmatter(content);
-          expect(fm.model).toBe('sonnet');
+          expect(['sonnet', 'haiku']).toContain(fm.model);
         });
 
         it('has tools field', () => {

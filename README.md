@@ -16,7 +16,7 @@ cd your-project
 vulchk init
 ```
 
-인터랙티브 설정 마법사가 리포트 언어(English, 한국어, 日本語, 中文)를 물어봅니다. `.vulchk/config.json`이 생성되고 Claude Code 슬래시 명령어가 설치됩니다.
+인터랙티브 설정 마법사가 리포트 언어(English, 한국어)를 물어봅니다. `.vulchk/config.json`이 생성되고 Claude Code 슬래시 명령어가 설치됩니다.
 
 ## 슬래시 명령어
 
@@ -67,7 +67,7 @@ Node.js, React/Next.js (Vercel 포함), FastAPI 프로젝트에 대해 특화된
 
 | 필드 | 설명 |
 |------|------|
-| `language` | 리포트 언어: `en`, `ko`, `ja`, `zh` |
+| `language` | 리포트 언어: `en`, `ko` |
 | `version` | 프로젝트를 초기화한 VulChk 버전 |
 
 ## CLI 옵션
@@ -105,8 +105,19 @@ vulchk --help            # 도움말 표시
 브라우저 기반 침투 테스트를 위해 [ratatosk-cli](https://github.com/letsur-dev/huginn)를 설치하세요:
 
 ```bash
-npm install -g ratatosk-cli
-ratatosk install --skills
+# 1. GitHub Packages 레지스트리 설정 (.npmrc에 추가)
+echo "@letsur-dev:registry=https://npm.pkg.github.com/" >> ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> ~/.npmrc
+
+# 2. ratatosk-cli 설치 (둘 중 하나 선택)
+npm install -g @letsur-dev/ratatosk-cli   # 글로벌 설치
+npm install @letsur-dev/ratatosk-cli       # 로컬 설치
+
+# 3. 브라우저 설치
+GITHUB_TOKEN=YOUR_GITHUB_TOKEN npx ratatosk install
+
+# 4. 스킬 설치
+npx ratatosk install --skills
 ```
 
 ratatosk-cli가 설치되지 않은 경우, VulChk는 HTTP 기반 테스트만 수행합니다.

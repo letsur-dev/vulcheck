@@ -29,18 +29,63 @@ composer.json, composer.lock
 
 ### Step 2: Extract Dependencies and Versions
 
-For each manifest found, extract the dependency name and pinned version.
+**IMPORTANT: Always prioritize lock files over manifests.** Lock files contain
+the exact resolved versions of ALL dependencies including transitive (indirect)
+dependencies. Over 80% of known vulnerabilities exist in transitive dependencies
+that only appear in lock files, not in top-level manifests.
+
+#### Reading Priority
+
+For each ecosystem, read files in this order (stop at the first one found):
+
+| Priority | npm | Python | Go | Rust | Ruby | PHP |
+|----------|-----|--------|----|------|------|-----|
+| 1st (preferred) | `package-lock.json` | `poetry.lock` | `go.sum` | `Cargo.lock` | `Gemfile.lock` | `composer.lock` |
+| 2nd | `yarn.lock` | `Pipfile.lock` | `go.mod` | `Cargo.toml` | `Gemfile` | `composer.json` |
+| 3rd | `pnpm-lock.yaml` | `requirements.txt` | — | — | — | — |
+| 4th (fallback) | `package.json` | `pyproject.toml` | — | — | — | — |
+
+#### Lock File Parsing
+
+**package-lock.json**: Read `packages` (v3) or `dependencies` (v1/v2) object.
+Each entry contains the exact `version` field. Include ALL entries, not just
+top-level — nested entries are transitive dependencies.
+
+**yarn.lock**: Each block has `{package}@{range}:` followed by
+`version "{exact_version}"`. Extract all package-version pairs.
+
+**pnpm-lock.yaml**: Read `packages` object. Keys are like `/{name}/{version}`.
+
+**poetry.lock**: Each `[[package]]` block has `name` and `version` fields.
+Include all packages regardless of `category` (main and dev).
+
+**Pipfile.lock**: JSON format with `default` and `develop` sections.
+Each entry has `"version": "=={exact}"`.
+
+**go.sum**: Lines are `{module} v{version} h1:{hash}`. Extract module and
+version. Note: go.sum may contain multiple versions per module — use the
+one matching go.mod's require directive.
+
+**Cargo.lock**: Each `[[package]]` block has `name` and `version` fields.
+
+**Gemfile.lock**: Under `GEM > specs:`, each line has `{gem} ({version})`.
+
+**composer.lock**: JSON with `packages` and `packages-dev` arrays, each
+with `name` and `version`.
+
+#### Fallback to Manifests
+
+Only use manifests (package.json, requirements.txt, etc.) when NO lock file
+exists. When using manifests:
 
 **package.json**: Read `dependencies` and `devDependencies` objects.
 Focus on exact versions or ranges — extract the minimum satisfying version.
-If `package-lock.json` or `yarn.lock` exists, prefer pinned versions from there.
 
 **requirements.txt**: Each line is `package==version` or `package>=version`.
 
 **go.mod**: Lines like `require ( module v1.2.3 )`.
 
 **pyproject.toml**: Check `[project.dependencies]` or `[tool.poetry.dependencies]`.
-If `poetry.lock` exists, prefer pinned versions from there.
 
 Build a list of `(package_name, version, ecosystem)` tuples. Map manifest files
 to OSV ecosystem names:
@@ -176,7 +221,10 @@ DEPENDENCY AUDIT COMPLETE: {total_deps} dependencies scanned, {vuln_count} vulne
 
 - Only report CVEs that affect the SPECIFIC version in use — the OSV API
   handles version matching automatically when you provide the `version` field
-- If a lock file exists, prefer its pinned versions over manifest ranges
+- ALWAYS read lock files first — they contain transitive dependencies
+  where the majority of vulnerabilities exist
+- If only a manifest is available (no lock file), note this limitation
+  in the output: "Warning: No lock file found — transitive dependencies not audited"
 - For packages with no known CVEs, do NOT include them in the output
 - If the OSV API returns an empty `vulns` array, the package is clean — skip it
 - Limit to top 20 most critical findings to avoid report bloat

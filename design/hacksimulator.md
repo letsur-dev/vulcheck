@@ -11,6 +11,16 @@
 - 테스트 시작 전 공격 계획 승인 필수
 - 모든 요청을 타임스탬프와 함께 로깅
 
+### 실행 전략 테이블
+
+2개 에이전트를 **순차적으로** 실행한다. planner 결과를 사용자가 승인한 후에만 executor가 실행된다.
+
+| 순서 | 단계 | 에이전트 | 모델 |
+|------|------|---------|------|
+| 1 | 정찰 + 계획 수립 | attack-planner | sonnet |
+| 2 | 승인 게이트 | (SKILL.md 직접 처리) | — |
+| 3 | 공격 실행 | attack-executor | sonnet |
+
 ## 전체 실행 시퀀스
 
 ```mermaid
@@ -71,7 +81,7 @@ sequenceDiagram
 ### Step 0: 설정 읽기
 
 ```
-.vulchk/config.json 읽기 → language, version
+.vulchk/config.json 읽기 → language (en|ko), version
 파일 없으면 → "en"으로 기본 설정, 경고 표시
 ```
 
@@ -113,7 +123,8 @@ flowchart TD
 ### Step 3: ratatosk-cli 감지
 
 ```bash
-which ratatosk 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"
+npm list -g @letsur-dev/ratatosk-cli 2>/dev/null && echo "FOUND" || \
+npm list @letsur-dev/ratatosk-cli 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"
 ```
 
 발견되면 추가 확인:
@@ -122,7 +133,12 @@ ls .claude/skills/ratatosk/ 2>/dev/null && echo "SKILLS_OK" || echo "NO_SKILLS"
 ```
 
 `RATATOSK_AVAILABLE` 플래그를 설정한다. 미설치 시 HTTP 전용 테스트로
-진행하며, 사용자에게 안내 메시지를 표시한다.
+진행하며, 설치 안내 메시지를 표시한다:
+
+1. `.npmrc`에 GitHub Packages 레지스트리 설정 추가
+2. `npm install -g @letsur-dev/ratatosk-cli`
+3. `GITHUB_TOKEN=YOUR_GITHUB_TOKEN npx ratatosk install` (브라우저 설치)
+4. `npx ratatosk install --skills` (스킬 설치)
 
 ### Step 4: 강도 선택
 
@@ -186,6 +202,7 @@ flowchart LR
 
 **파일**: `vulchk-attack-planner.md`
 **호출 시점**: hacksimulator SKILL.md Step 6
+**모델**: sonnet
 **주요 도구**: Bash (curl로 정찰)
 **출력**: 구조화된 공격 계획 문서
 
@@ -211,20 +228,24 @@ flowchart TD
 
     SourceRecon{"Step 2: 소스 코드<br>접근 가능?<br>(localhost 타겟)"}
     SourceRecon -->|예| ReadRoutes["라우트 정의 읽기<br>인증 메커니즘 확인<br>DB 쿼리 패턴 탐지"]
-    SourceRecon -->|아니오| MapSurface
+    SourceRecon -->|아니오| BizLogic
 
     ReadRoutes --> CIReport{"codeinspector<br>리포트 존재?"}
     CIReport -->|예| MapFindings["코드 발견 사항 → 공격 벡터 매핑<br>SQLi → SQLi 프로브<br>XSS → XSS 페이로드<br>인증 누락 → 미인증 접근"]
-    CIReport -->|아니오| MapSurface
+    CIReport -->|아니오| BizLogic
 
-    MapFindings --> MapSurface["Step 3: 공격 표면 매핑<br>페이지, API 엔드포인트, 폼,<br>업로드, 인증, URL 파라미터, WebSocket"]
+    MapFindings --> BizLogic["Step 3: 비즈니스 로직 분석"]
+    BizLogic --> DetectType["앱 유형 파악:<br>이커머스, SaaS, 소셜,<br>핀테크, API 서비스 등"]
+    DetectType --> GenBizTests["비즈니스 로직 테스트 생성:<br>IDOR, 가격 변조, 워크플로 우회,<br>레이스 컨디션, 권한 상승"]
 
-    MapSurface --> GenPlan["Step 4: 강도별 계획 생성"]
+    GenBizTests --> MapSurface["Step 4: 공격 표면 매핑<br>페이지, API 엔드포인트, 폼,<br>업로드, 인증, URL 파라미터, WebSocket"]
+
+    MapSurface --> GenPlan["Step 5: 강도별 계획 생성"]
     GenPlan --> Passive["Passive 계획:<br>3개 단계, 정찰만"]
-    GenPlan --> Active["Active 계획:<br>5개 단계, 안전한 프로브"]
-    GenPlan --> Aggressive["Aggressive 계획:<br>8개 단계, 전체 익스플로잇"]
+    GenPlan --> Active["Active 계획:<br>6개 단계 (비즈니스 로직 포함),<br>안전한 프로브"]
+    GenPlan --> Aggressive["Aggressive 계획:<br>9개 단계, 전체 익스플로잇<br>⚠ 스테이징 환경 권장"]
 
-    Passive --> Output["Step 5: 출력 포맷"]
+    Passive --> Output["Step 6: 출력 포맷"]
     Active --> Output
     Aggressive --> Output
     Output --> End([끝])
@@ -242,6 +263,20 @@ flowchart TD
 | 하드코딩된 시크릿 (SEC-*) | 발견된 자격 증명으로 접근 |
 | CSRF 토큰 누락 (CODE-*) | CSRF 위조 시도 |
 
+### 비즈니스 로직 취약점 공격 시나리오
+
+CVE나 OWASP 패턴으로 탐지 불가능한 설계 오류를 테스트한다:
+
+| 앱 유형 | 테스트 시나리오 | 공격 방법 |
+|---------|--------------|----------|
+| 이커머스 | 가격 변조 | 결제 요청의 price 파라미터를 -1로 변경 |
+| 이커머스 | 쿠폰 재사용 | 동일 쿠폰 코드 100회 적용 시도 |
+| SaaS | 플랜 제한 우회 | 무료 사용자 토큰으로 유료 API 접근 |
+| 게시판 | IDOR | 내 계정으로 다른 사용자의 글 수정/삭제 |
+| 공통 | 권한 상승 | 프로필 업데이트 시 `role: "admin"` 주입 |
+| 공통 | 워크플로 우회 | 이메일 인증 단계 건너뛰기 |
+| 핀테크 | 레이스 컨디션 | 동시 요청으로 잔액 초과 이체 |
+
 ---
 
 ## 서브에이전트: Attack Executor
@@ -249,6 +284,7 @@ flowchart TD
 **파일**: `vulchk-attack-executor.md`
 **발견 사항 접두사**: `HSM-{NNN}`
 **호출 시점**: hacksimulator SKILL.md Step 8 (계획 승인 후)
+**모델**: sonnet
 **주요 도구**: Bash (curl로 공격 수행)
 
 ### 알고리즘
@@ -257,9 +293,11 @@ flowchart TD
 flowchart TD
     Start([시작]) --> InitLog["Step 1: 공격 로그 초기화<br>date +'%Y-%m-%d %H:%M:%S'"]
 
-    InitLog --> PassiveTests["Step 2: 패시브 테스트 (항상 실행)"]
+    InitLog --> SessionInit["Step 1b: 세션 상태 초기화<br>쿠키 저장 파일 생성<br>JWT 토큰 저장 파일 생성"]
+    SessionInit --> TokenExtract["Step 1c: Stateful 토큰 추출 설정<br>모든 응답에서 자동 추출:<br>• Set-Cookie 헤더<br>• Authorization 토큰<br>• CSRF 토큰<br>후속 요청에 자동 재사용"]
+    TokenExtract --> PassiveTests["Step 2: 패시브 테스트 (항상 실행)"]
 
-    PassiveTests --> PT1["2a: 보안 헤더 감사<br>8개 헤더 확인"]
+    PassiveTests --> PT1["2a: 보안 헤더 감사<br>8개 헤더 + CSP 품질 분석"]
     PassiveTests --> PT2["2b: 쿠키 보안<br>HttpOnly, Secure, SameSite"]
     PassiveTests --> PT3["2c: CORS 정책 테스트"]
     PassiveTests --> PT4["2d: 정보 노출<br>.git/HEAD, .env, admin/, phpinfo"]
@@ -279,13 +317,14 @@ flowchart TD
     ActiveTests --> AT1["3a: XSS 반사 테스트<br>마커 주입 → 반사 여부 확인"]
     ActiveTests --> AT2["3b: SQL injection<br>에러 기반, 불리언 기반, 시간 기반"]
     ActiveTests --> AT3["3c: CSRF 토큰 검증"]
-    ActiveTests --> AT4["3d: 인증 테스트<br>기본 자격증명, JWT none 알고리즘"]
+    ActiveTests --> AT4["3d: Stateful 인증 테스트<br>로그인→세션저장→권한테스트→로그아웃→재사용"]
     ActiveTests --> AT5["3e: IDOR 테스트"]
     ActiveTests --> AT6["3f: SSRF 프로빙"]
     ActiveTests --> AT7["3g: HTTP 메서드 테스트<br>OPTIONS, TRACE"]
     ActiveTests --> AT8["3h: 세션 관리"]
     ActiveTests --> AT9["3i: GraphQL 테스트"]
     ActiveTests --> AT10["3j: 파일 업로드 테스트"]
+    ActiveTests --> AT11["3k: 비즈니스 로직 테스트<br>IDOR, 가격 변조, 권한 상승"]
 
     AT1 --> IntCheck2{"강도 == Aggressive?"}
     AT2 --> IntCheck2
@@ -297,6 +336,7 @@ flowchart TD
     AT8 --> IntCheck2
     AT9 --> IntCheck2
     AT10 --> IntCheck2
+    AT11 --> IntCheck2
 
     IntCheck2 -->|"아니오 (Active)"| Compile
     IntCheck2 -->|예| AggressiveTests["Step 4: Aggressive 익스플로잇"]
@@ -323,6 +363,19 @@ flowchart TD
     Log --> End
     Summary --> End
 ```
+
+### Stateful 테스트 강화
+
+attack-executor는 **모든 HTTP 응답**에서 다음 토큰을 명시적으로 추출하고, 후속 요청에 자동으로 재사용한다:
+
+| 추출 대상 | 추출 위치 | 재사용 방식 |
+|----------|---------|-----------|
+| **Set-Cookie** | 응답 헤더 `Set-Cookie` | 후속 요청의 `Cookie` 헤더에 포함 |
+| **Authorization 토큰** | 응답 본문의 `token`, `access_token`, `jwt` 필드 | 후속 요청의 `Authorization: Bearer {token}` 헤더에 포함 |
+| **CSRF 토큰** | 응답 본문의 `csrf`, `_csrf`, `xsrf-token` 필드 또는 `X-CSRF-Token` 헤더 | 후속 요청의 `X-CSRF-Token` 헤더 또는 본문 파라미터에 포함 |
+
+이를 통해 로그인 → 인증이 필요한 엔드포인트 테스트 → 권한 상승 시도 등
+다단계 공격 체인을 실제 세션 상태를 유지하면서 수행할 수 있다.
 
 ### 공격 로그 형식
 
@@ -351,12 +404,15 @@ flowchart TD
 
 | 메커니즘 | 설명 |
 |---------|------|
+| Stateful 세션 관리 | 모든 응답에서 Set-Cookie, Authorization 토큰, CSRF 토큰을 자동 추출하여 후속 요청에 재사용. 쿠키/JWT를 파일로 관리 |
+| CSP 품질 분석 | 단순 존재 여부가 아닌 `unsafe-inline`, `unsafe-eval`, 와일드카드 검사 |
 | Rate limiting 감지 | 429 응답 시 일시 중지, 로그에 기록 |
 | WAF 감지 | 프로브에 403 응답 시 WAF 제품 식별 |
 | 비파괴적 페이로드 | 접근 가능성만 증명, 실제 사용자 데이터 추출 안 함 |
 | 마스킹 | 발견된 모든 자격 증명은 마스킹 처리 |
 | DoS 금지 | 스레드 고갈이나 리소스 플러딩 금지 |
-| 정리 | 테스트 후 임시 파일 삭제 |
+| Aggressive 경고 강화 | 실 데이터 삭제/서비스 중단 가능성 경고, 스테이징 환경 권장 |
+| 세션 정리 | 테스트 후 쿠키/토큰 파일 및 임시 파일 삭제 |
 
 ---
 
@@ -377,7 +433,8 @@ flowchart TD
 
 ## Step 9: 리포트 생성
 
-codeinspector와 동일한 메커니즘 — SKILL.md의 i18n 번역 테이블 사용.
+codeinspector와 동일한 메커니즘 — SKILL.md에서 `"Write the report in {language}"` 형식으로
+언어를 지정하며, 별도의 번역 테이블은 사용하지 않는다. 지원 언어: en, ko.
 hacksimulator 전용 추가 섹션:
 
 | 섹션 | 설명 |
@@ -389,11 +446,11 @@ hacksimulator 전용 추가 섹션:
 
 ### 강도 라벨 (언어별)
 
-| en | ko | ja |
-|---|---|---|
-| Passive | Passive (패시브) | Passive (パッシブ) |
-| Active | Active (액티브) | Active (アクティブ) |
-| Aggressive | Aggressive (공격적) | Aggressive (アグレッシブ) |
+| en | ko |
+|---|---|
+| Passive | Passive (패시브) |
+| Active | Active (액티브) |
+| Aggressive | Aggressive (공격적) |
 
 ## Step 10: 정리
 
@@ -416,7 +473,8 @@ hacksimulator 전용 추가 섹션:
 | 분석 유형 | 정적 (코드) | 동적 (런타임) |
 | 대상 | 프로젝트 소스 파일 | 실행 중인 웹 애플리케이션 |
 | 승인 필요 | 아니오 (비파괴적) | 예 (요청 전송) |
-| 서브에이전트 | 5개 병렬 | 2개 순차 |
+| 서브에이전트 | 5개 **병렬** | 2개 **순차** (planner → 승인 → executor) |
+| 사용 모델 | sonnet 3개 + haiku 2개 | sonnet 2개 |
 | 외부 네트워크 | OSV API만 | 타겟 URL + 정찰 |
 | 출력 접두사 | DEP/CODE/SEC/GIT/CTR | HSM |
 | 사전 데이터 | 없음 | codeinspector 리포트 활용 가능 |

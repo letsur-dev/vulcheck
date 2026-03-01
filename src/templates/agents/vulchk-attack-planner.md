@@ -113,7 +113,77 @@ testable attack vector:
 | Hardcoded secret (SEC-*) | Use discovered credentials for access |
 | Missing CSRF token (CODE-*) | CSRF forgery attempt |
 
-### Step 3: Map Attack Surface
+### Step 3: Business Logic Analysis
+
+Before mapping the attack surface, identify the **business purpose** of the
+application. Business logic vulnerabilities are often the most critical because
+they cannot be caught by signature-based scanning — they exploit the intended
+functionality in unintended ways.
+
+#### 3a. Determine Application Type
+
+Analyze the target to classify its business domain:
+
+| Application Type | Key Business Flows to Test |
+|-----------------|--------------------------|
+| E-commerce / Marketplace | Checkout, pricing, inventory, coupons, refunds |
+| SaaS / Multi-tenant | Tenant isolation, plan limits, billing, feature gates |
+| Social / Forum | User-generated content, permissions, reputation systems |
+| Banking / Fintech | Transfers, balance checks, transaction ordering |
+| Content Platform | Access control, download limits, subscription tiers |
+| API Service | Rate limits, quota management, key permissions |
+
+#### 3b. Business Logic Attack Scenarios
+
+For each identified business flow, consider these attack categories:
+
+**Price/Value Manipulation**:
+- Modify price, quantity, or discount parameters in requests
+- Apply expired or invalid coupon codes
+- Change currency or unit fields
+- Set negative quantities or amounts
+- Skip payment steps in multi-step checkout
+
+**IDOR (Insecure Direct Object Reference)**:
+- Access other users' resources by changing ID parameters
+- Enumerate sequential IDs to discover hidden resources
+- Use one user's credentials to modify another user's data
+- Access admin-only endpoints with regular user tokens
+
+**Workflow Bypass**:
+- Skip required steps in multi-step processes (e.g., email verification)
+- Re-use one-time tokens or codes multiple times
+- Complete actions out of the expected order
+- Manipulate state parameters (status, role, approved) directly
+
+**Race Conditions**:
+- Simultaneous redemption of limited-use vouchers
+- Concurrent balance transfers exceeding available funds
+- Double-submit on state-changing operations
+
+**Privilege Escalation**:
+- Modify role or permission fields in profile update requests
+- Access admin API endpoints with regular user authentication
+- Escalate from free to paid tier without payment
+
+**Rate Limit Bypass**:
+- Rotate headers (X-Forwarded-For) to bypass IP-based limits
+- Use different API keys or session tokens
+- Chunk requests to stay under per-minute thresholds
+
+#### 3c. Generate Business Logic Test Cases
+
+For each identified business flow, generate specific test cases:
+
+```
+| # | Business Flow | Attack Scenario | Expected Behavior | Test Method |
+|---|--------------|-----------------|-------------------|-------------|
+| 1 | Checkout | Set price=-1 in POST /checkout | Should reject | Modify request body |
+| 2 | Profile | GET /api/users/OTHER_ID | Should deny access | Change ID param |
+| 3 | Coupon | Apply same code 100 times | Should reject after 1st | Repeat request |
+```
+
+### Step 4: Map Attack Surface
 
 Compile a list of all discovered:
 
@@ -125,7 +195,7 @@ Compile a list of all discovered:
 6. **URL parameters that accept user input**
 7. **WebSocket endpoints**
 
-### Step 4: Generate Attack Plan
+### Step 5: Generate Attack Plan
 
 Based on intensity level and discovered attack surface, generate the plan.
 
@@ -196,7 +266,15 @@ Based on intensity level and discovered attack surface, generate the plan.
 - [ ] SSRF probes on: {list URL-accepting parameters}
 - [ ] Rate limiting assessment on: {auth endpoints}
 
-### Phase 5: API-Specific (if applicable)
+### Phase 5: Business Logic Testing
+- [ ] IDOR probes: Access other users' resources by modifying ID parameters
+- [ ] Price/value manipulation: Modify price, quantity, discount in requests
+- [ ] Workflow bypass: Skip required steps, reuse one-time tokens
+- [ ] Role/privilege escalation: Modify role fields in update requests
+- [ ] Rate limit assessment: Test enforcement on critical endpoints
+{include test cases from Step 3c}
+
+### Phase 6: API-Specific (if applicable)
 - [ ] GraphQL introspection query
 - [ ] GraphQL query depth/complexity abuse
 - [ ] REST API endpoint enumeration
@@ -215,10 +293,16 @@ Based on intensity level and discovered attack surface, generate the plan.
 ⚠ WARNING: Aggressive testing may trigger security monitoring,
 WAF blocks, or rate limiting on the target.
 
-### Phase 1-5: (all Active checks)
+⚠ CAUTION: Aggressive exploitation may cause real data modification,
+deletion, or service disruption. It is STRONGLY RECOMMENDED to run
+aggressive tests only against staging/test environments with dummy data.
+Do NOT run against production systems with real user data unless you
+have explicit written authorization from the system owner.
+
+### Phase 1-6: (all Active checks)
 {include all phases from Active plan}
 
-### Phase 6: Exploitation
+### Phase 7: Exploitation
 - [ ] SQL injection data extraction (if SQLi confirmed):
   - UNION-based extraction
   - Blind extraction (character-by-character)
@@ -236,7 +320,7 @@ WAF blocks, or rate limiting on the target.
   - Content-Type mismatch upload
   - Web shell upload attempt (proof-of-concept only)
 
-### Phase 7: Advanced Attacks
+### Phase 8: Advanced Attacks
 - [ ] JWT secret brute-force (common secrets list)
 - [ ] JWT RS256-to-HS256 confusion
 - [ ] Race condition testing on: {critical state-changing operations}
@@ -244,8 +328,12 @@ WAF blocks, or rate limiting on the target.
 - [ ] HTTP request smuggling detection
 - [ ] Chained exploit attempts (combining multiple findings)
 - [ ] Privilege escalation through mass assignment
+- [ ] Business logic exploitation:
+  - Price/value manipulation with negative or zero values
+  - Multi-step workflow bypass (skip verification steps)
+  - Concurrent requests for race-condition exploitation on business operations
 
-### Phase 8: Post-Exploitation Verification
+### Phase 9: Post-Exploitation Verification
 - [ ] Verify data access scope of confirmed exploits
 - [ ] Document full exploit chain
 - [ ] Assess business impact of successful exploits
@@ -255,7 +343,7 @@ WAF blocks, or rate limiting on the target.
 ### Note: Active exploitation attempted on confirmed vulnerabilities
 ```
 
-### Step 5: Format Output
+### Step 6: Format Output
 
 Return the attack plan in this exact structure:
 
@@ -294,6 +382,8 @@ ATTACK PLAN GENERATION COMPLETE: {endpoint_count} endpoints mapped, {test_count}
 
 ## Important Notes
 
+- Always perform business logic analysis (Step 3) — these vulnerabilities
+  are often the highest impact and cannot be detected by pattern matching
 - NEVER send attack payloads during planning — reconnaissance only
 - For passive intensity, use ONLY non-intrusive HTTP requests (HEAD, GET)
 - Map ALL discovered endpoints even if not all will be tested

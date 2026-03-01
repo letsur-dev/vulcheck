@@ -1,7 +1,7 @@
 ---
 name: vulchk-secrets-scanner
 description: "Check for secrets exposure risks: .gitignore coverage, env file presence, hardcoded credentials, and exposed API keys in source code."
-model: sonnet
+model: haiku
 tools:
   - search
   - read

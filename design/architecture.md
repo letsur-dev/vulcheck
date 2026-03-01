@@ -90,7 +90,7 @@ allowed-tools: [Bash, Read, Grep, Glob, WebSearch, WebFetch, Task]
 ---
 name: vulchk-dependency-auditor
 description: "이 에이전트가 하는 일..."
-model: sonnet              # 서브에이전트는 Sonnet 사용 (비용 효율)
+model: sonnet              # 에이전트별 모델은 아래 표 참고
 tools:
   - bash                   # 이 서브에이전트가 사용할 수 있는 도구
   - read
@@ -146,7 +146,7 @@ flowchart TD
 
     LangCheck{"--lang 플래그?"}
     LangCheck -->|있음| Validate["언어 유효성 검사"]
-    LangCheck -->|없음| Prompt["인터랙티브 언어 선택기<br>en / ko / ja / zh"]
+    LangCheck -->|없음| Prompt["인터랙티브 언어 선택기<br>en / ko"]
     Prompt --> Validate
 
     Validate --> WriteConfig["writeConfig()<br>.vulchk/config.json 생성"]
@@ -177,22 +177,42 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 
 ### 스킬 (오케스트레이터)
 
-| 스킬 | 슬래시 명령어 | 실행하는 서브에이전트 |
-|------|-------------|-------------------|
-| `vulchk-codeinspector` | `/vulchk.codeinspector` | 5개 에이전트 병렬 실행 |
-| `vulchk-hacksimulator` | `/vulchk.hacksimulator [url]` | 2개 에이전트 순차 실행 |
+| 스킬 | 슬래시 명령어 | 실행하는 서브에이전트 | 실행 전략 |
+|------|-------------|-------------------|---------|
+| `vulchk-codeinspector` | `/vulchk.codeinspector` | 5개 에이전트 | **병렬** — 5개 에이전트 동시 실행 |
+| `vulchk-hacksimulator` | `/vulchk.hacksimulator [url]` | 2개 에이전트 | **순차** — planner → 승인 → executor |
+
+### 실행 전략 테이블
+
+| 스킬 | 에이전트 | 모델 | 실행 순서 |
+|------|---------|------|---------|
+| codeinspector | dependency-auditor | sonnet | 병렬 |
+| codeinspector | code-pattern-scanner | sonnet | 병렬 |
+| codeinspector | secrets-scanner | haiku | 병렬 |
+| codeinspector | git-history-auditor | haiku | 병렬 |
+| codeinspector | container-security-analyzer | sonnet | 병렬 |
+| hacksimulator | attack-planner | sonnet | 순차 1단계 |
+| hacksimulator | (승인 게이트) | — | 순차 2단계 |
+| hacksimulator | attack-executor | sonnet | 순차 3단계 |
+
+### 리포트 정렬 규칙
+
+발견 사항은 다음 기준으로 정렬된다. Finding #1이 항상 가장 위험한 항목이다.
+
+1. **심각도 순** (1차 기준): Critical > High > Medium > Low > Informational
+2. **카테고리 순** (2차 기준, 동일 심각도 내): CVE > OWASP > Secrets > Git > Container
 
 ### 에이전트 (워커)
 
-| 에이전트 | 접두사 | 호출 주체 | 주요 도구 |
-|---------|--------|---------|---------|
-| `vulchk-dependency-auditor` | DEP | codeinspector | Bash (curl → OSV API) |
-| `vulchk-code-pattern-scanner` | CODE | codeinspector | Grep (정규식 패턴 매칭) |
-| `vulchk-secrets-scanner` | SEC | codeinspector | Grep + Glob |
-| `vulchk-git-history-auditor` | GIT | codeinspector | Bash (git log -p -S) |
-| `vulchk-container-security-analyzer` | CTR | codeinspector | Read + Grep |
-| `vulchk-attack-planner` | — | hacksimulator | Bash (curl 정찰) |
-| `vulchk-attack-executor` | HSM | hacksimulator | Bash (curl 공격) |
+| 에이전트 | 접두사 | 호출 주체 | 모델 | 주요 도구 | 핵심 기능 |
+|---------|--------|---------|------|---------|----------|
+| `vulchk-dependency-auditor` | DEP | codeinspector | sonnet | Bash (curl → OSV API) | Lock 파일 우선 읽기, 전이 의존성 포함 |
+| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | 4단계 CoT 추론 + Source→Sink Taint Analysis |
+| `vulchk-secrets-scanner` | SEC | codeinspector | haiku | Grep + Glob | .gitignore 검증, 시크릿 탐지 |
+| `vulchk-git-history-auditor` | GIT | codeinspector | haiku | Bash (git log -p -S) | 커밋 이력에서 시크릿 검색 |
+| `vulchk-container-security-analyzer` | CTR | codeinspector | sonnet | Read + Grep | 컨테이너 + CI/CD 파이프라인 보안 |
+| `vulchk-attack-planner` | — | hacksimulator | sonnet | Bash (curl 정찰) | 비즈니스 로직 분석, 공격 시나리오 설계 |
+| `vulchk-attack-executor` | HSM | hacksimulator | sonnet | Bash (curl 공격) | Stateful 세션 체이닝 (Set-Cookie/Authorization/CSRF 토큰 자동 추출), CSP 정교 분석 |
 
 ## 데이터 흐름
 
@@ -200,7 +220,7 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 
 ```
 .vulchk/config.json
-├── language: "en" | "ko" | "ja" | "zh"   → 리포트 언어
+├── language: "en" | "ko"                   → 리포트 언어
 └── version: "0.1.0"                        → 초기화 시점의 VulChk 버전
 ```
 
@@ -219,8 +239,10 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 
 **hacksimulator**: 실행할 때마다 타임스탬프가 붙은 새 파일이 생성된다.
 
-리포트는 SKILL.md에 내장된 i18n 번역 테이블을 사용하여 LLM이 생성하는
-**마크다운 파일**이다. 보안 용어(CVE, XSS, CSRF, OWASP, CWE)는 언어 설정과
+리포트는 LLM이 생성하는 **마크다운 파일**이다. SKILL.md에서
+`"Write the report in {language}"` 형식으로 언어를 지정하며, LLM이 해당 언어로
+자연스럽게 리포트를 작성한다. 지원 언어는 en/ko 2개이다.
+보안 용어(CVE, XSS, CSRF, OWASP, CWE)는 언어 설정과
 무관하게 항상 영어로 유지된다.
 
 ### 민감값 처리

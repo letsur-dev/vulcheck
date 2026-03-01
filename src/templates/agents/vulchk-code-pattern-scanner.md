@@ -187,7 +187,100 @@ gets\s*\(                           # gets() — always unsafe
 free\s*\(.*free\s*\(                # Double free
 ```
 
-### Step 5: Format Findings
+### Step 5: Taint Analysis — Source-to-Sink Data Flow Tracking
+
+After regex pattern matching, perform **contextual taint analysis** on every
+match. A regex hit alone is NOT a confirmed vulnerability — you must verify
+whether untrusted input actually reaches the dangerous function without
+proper sanitization.
+
+#### Sources (Untrusted User Input)
+
+Identify all data entry points in the codebase:
+
+| Framework | Source Examples |
+|-----------|---------------|
+| Express/Fastify | `req.body`, `req.query`, `req.params`, `req.headers`, `req.cookies` |
+| Next.js | `searchParams`, `params`, `formData()`, `headers()`, `cookies()` |
+| FastAPI | function parameters with `Query()`, `Body()`, `Path()`, `Header()` |
+| Django | `request.GET`, `request.POST`, `request.FILES`, `request.body` |
+| Flask | `request.args`, `request.form`, `request.json`, `request.files` |
+| General | `process.env` (when user-controlled), URL parameters, file uploads |
+
+#### Sinks (Dangerous Functions)
+
+| Category | Sink Examples |
+|----------|-------------|
+| SQL Injection | `db.query()`, `execute()`, `raw()`, `sequelize.literal()`, `.extra()` |
+| XSS | `innerHTML`, `document.write()`, `dangerouslySetInnerHTML`, `v-html` |
+| Command Injection | `exec()`, `spawn()`, `system()`, `subprocess.run()`, `eval()` |
+| Path Traversal | `fs.readFile()`, `open()`, `path.join()` with user input |
+| SSRF | `fetch()`, `axios()`, `requests.get()`, `http.get()` with user-controlled URL |
+| Deserialization | `JSON.parse()`, `pickle.loads()`, `yaml.load()`, `unserialize()` |
+
+#### Chain of Thought — Mandatory Reasoning Process
+
+For EVERY regex match, you MUST follow this exact reasoning chain before
+reporting. Do not skip steps — each step gates the next.
+
+**Step A — "What did I find?"**
+Read 30-50 lines of surrounding context around the match.
+Ask: What is the Sink (dangerous function) and what data flows into it?
+
+**Step B — "Where does the data come from?"**
+Trace the variable backwards through assignments, function parameters,
+and return values. Ask: Does this data originate from a Source (user input)?
+- If the data is a hardcoded string, constant, or server-generated value → **STOP: False Positive**
+- If the data comes from a Source or is unclear → continue to Step C
+
+**Step C — "Is there protection in between?"**
+Between the Source and the Sink, look for:
+- Parameterized queries / prepared statements
+- Input validation (allowlists, regex filters, type checks)
+- Output encoding / escaping functions (e.g., `DOMPurify.sanitize()`,
+  `escapeHtml()`, `bleach.clean()`)
+- ORM methods that auto-parameterize (e.g., Prisma, SQLAlchemy ORM)
+Ask: Is the sanitization sufficient to prevent exploitation?
+- If fully sanitized → **STOP: False Positive**
+- If partially sanitized → continue to Step D with "Potential" flag
+- If no sanitization → continue to Step D with "Confirmed" flag
+
+**Step D — "What is the actual risk?"**
+Classify the finding:
+- **Confirmed**: Source reaches Sink without sanitization → report as-is
+- **Potential**: Source reaches Sink but some validation exists (may be
+  insufficient) → report with note about partial mitigation
+- **False Positive**: Sink only receives hardcoded/validated data → do NOT report
+
+#### Cross-File Tracking
+
+When a function parameter is the Sink input, trace the callers:
+
+```
+// file: routes/user.js
+function updateUser(data) {     ← data is the parameter
+  db.query(`UPDATE users SET name = '${data.name}'`);  ← Sink
+}
+
+// file: controllers/api.js
+router.post('/user', (req, res) => {
+  updateUser(req.body);  ← Source: req.body flows into data
+});
+```
+
+Use Grep to find all call sites: `grep -rn "updateUser(" src/`
+Read each caller to determine if the Source is user-controlled.
+
+#### Severity Adjustment Based on Taint Analysis
+
+| Scenario | Severity Adjustment |
+|----------|-------------------|
+| Direct Source→Sink, no sanitization | Original severity (Critical/High) |
+| Source→Sink with partial validation | Downgrade one level |
+| Sink receives only server-generated data | False positive — remove |
+| Source→Sink but behind auth middleware | Note in remediation, keep severity |
+
+### Step 6: Format Findings
 
 Return findings in this exact format:
 
@@ -205,17 +298,22 @@ Return findings in this exact format:
 - **Remediation**: {specific fix with code example if possible}
 ```
 
-### Step 6: Summary
+### Step 7: Summary
 
 ```
-CODE PATTERN SCAN COMPLETE: {files_scanned} files scanned, {vuln_count} patterns found ({critical} critical, {high} high, {medium} medium, {low} low)
+CODE PATTERN SCAN COMPLETE: {files_scanned} files scanned, {vuln_count} patterns found ({critical} critical, {high} high, {medium} medium, {low} low). Taint analysis performed: {confirmed} confirmed, {potential} potential, {false_positives} false positives removed
 ```
 
 ## Important Notes
 
-- Read surrounding code context (10-20 lines) before reporting — a pattern match
-  is not always a vulnerability (e.g., `innerHTML` with sanitized input is OK)
+- **Always perform taint analysis** (Step 5) before reporting — a regex match
+  without Source→Sink verification is insufficient
+- Read surrounding code context (30-50 lines) before reporting
 - For framework checks, verify both import AND usage (importing helmet
   but not calling `app.use(helmet())` is a finding)
 - Rate limit your Grep calls — group related patterns together
 - Distinguish between server-side and client-side code when assessing severity
+- Cross-file tracking is critical: if a Sink receives data via function
+  parameter, trace ALL callers to determine if any pass user input
+- Do NOT report findings where the Sink only receives hardcoded or
+  server-generated values — these are false positives
