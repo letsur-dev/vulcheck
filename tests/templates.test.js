@@ -402,5 +402,57 @@ describe('template validation', () => {
       expect(content).toContain('WAITFOR DELAY');
       expect(content).toContain('RANDOMBLOB');
     });
+
+    it('secrets scanner Firebase private_key pattern covers EC keys', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-secrets-scanner.md'), 'utf-8');
+      expect(content).toMatch(/"private_key".*BEGIN \(RSA \|EC/);
+    });
+
+    it('secrets scanner gitignore checklist includes firebase-adminsdk and supabase patterns', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-secrets-scanner.md'), 'utf-8');
+      expect(content).toContain('*firebase-adminsdk*.json');
+      expect(content).toContain('supabase/.env');
+    });
+
+    it('attack planner DB Attack Vectors covers NoSQL and Supabase subsections', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-planner.md'), 'utf-8');
+      expect(content).toContain('NoSQL Operator Injection');
+      expect(content).toContain('service_role');
+      expect(content).toContain('RLS status');
+    });
+
+    it('attack executor SUPABASE_DETECTED is set and checked within the same bash block', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      const idx1 = content.indexOf('SUPABASE_DETECTED=false');
+      const idx2 = content.indexOf('if [ "$SUPABASE_DETECTED" = "true" ]');
+      expect(idx1).toBeGreaterThan(-1);
+      expect(idx2).toBeGreaterThan(-1);
+      expect(Math.abs(idx2 - idx1)).toBeLessThan(2000);
+    });
+
+    it('attack executor time-based SQLi uses baseline comparison and CONFIRMED output', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      expect(content).toContain('ELAPSED - BASELINE');
+      expect(content).toContain('CONFIRMED:');
+      expect(content).toContain('BASELINE=');
+    });
+
+    it('attack executor Firebase check uses status-only probe on nonexistent path', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      expect(content).toContain('.vulchkprobe.json');
+      expect(content).not.toMatch(/firebaseio\.com\/\.json[^a-z]/);
+    });
+
+    it('attack executor NoSQL GET probes use percent-encoded dollar sign', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      expect(content).toContain('%24ne');
+      expect(content).toContain('%24regex');
+    });
+
+    it('secrets scanner does not rate Firebase client_email as High', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-secrets-scanner.md'), 'utf-8');
+      expect(content).not.toContain('client_email → **High**');
+      expect(content).toContain('Informational');
+    });
   });
 });
