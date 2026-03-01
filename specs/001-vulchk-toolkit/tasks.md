@@ -98,7 +98,7 @@ Write the 2 sub-agent files for planning and execution.
 
 ---
 
-## Phase 4: Report Templates and i18n
+## Phase 4: Report Templates and i18n ✅
 
 > **Purpose**: Ensure reports are generated in the configured
 > language with proper formatting.
