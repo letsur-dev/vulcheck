@@ -193,7 +193,10 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 | codeinspector | container-security-analyzer | sonnet | 병렬 |
 | hacksimulator | attack-planner | sonnet | 순차 1단계 |
 | hacksimulator | (승인 게이트) | — | 순차 2단계 |
-| hacksimulator | attack-executor | sonnet | 순차 3단계 |
+| hacksimulator | attack-executor (auth) | sonnet | 순차 3단계 (Pass 0: pre-auth) |
+| hacksimulator | attack-executor × N | sonnet | 병렬 4단계 (Pass 1: HTTP) |
+| hacksimulator | attack-executor × M | sonnet | 순차 5단계 (Pass 2: 브라우저) |
+| hacksimulator | attack-executor × K | sonnet | 순차 6단계 (Pass 3: 익스플로잇) |
 
 ### 리포트 정렬 규칙
 
@@ -207,12 +210,12 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 | 에이전트 | 접두사 | 호출 주체 | 모델 | 주요 도구 | 핵심 기능 |
 |---------|--------|---------|------|---------|----------|
 | `vulchk-dependency-auditor` | DEP | codeinspector | sonnet | Bash (curl → OSV API) | Lock 파일 우선 읽기, 전이 의존성 포함 |
-| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | 4단계 CoT 추론 + Source→Sink Taint Analysis |
-| `vulchk-secrets-scanner` | SEC | codeinspector | haiku | Grep + Glob | .gitignore 검증, 시크릿 탐지 |
-| `vulchk-git-history-auditor` | GIT | codeinspector | haiku | Bash (git log -p -S) | 커밋 이력에서 시크릿 검색 |
+| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | 4단계 CoT 추론 + Source→Sink Taint Analysis, NoSQL injection·Prototype Pollution·Open Redirect·Mass Assignment·Server Actions 탐지 |
+| `vulchk-secrets-scanner` | SEC | codeinspector | haiku | Grep + Glob | .gitignore 검증 (파일 존재 연계), 시크릿 탐지 |
+| `vulchk-git-history-auditor` | GIT | codeinspector | haiku | Bash (git log -p -S) | 커밋 이력에서 시크릿 검색 (15+ 패턴, false positive 필터) |
 | `vulchk-container-security-analyzer` | CTR | codeinspector | sonnet | Read + Grep | 컨테이너 + CI/CD 파이프라인 보안 |
 | `vulchk-attack-planner` | — | hacksimulator | sonnet | Bash (curl 정찰) | 비즈니스 로직 분석, 공격 시나리오 설계 |
-| `vulchk-attack-executor` | HSM | hacksimulator | sonnet | Bash (curl 공격) | Stateful 세션 체이닝 (Set-Cookie/Authorization/CSRF 토큰 자동 추출), CSP 정교 분석 |
+| `vulchk-attack-executor` | HSM | hacksimulator | sonnet | Bash (curl 공격) | Stateful 세션 체이닝, CSP 분석, SSTI 탐지, Rate Limiting 검증, 에러 핸들링 가이드, site-analysis.md 재사용 |
 
 ## 데이터 흐름
 

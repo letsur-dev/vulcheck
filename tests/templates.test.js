@@ -160,13 +160,14 @@ describe('template validation', () => {
         expect(content).toContain('scenarios_filter');
       });
 
-      it('contains Two-Pass execution model', () => {
+      it('contains Multi-Pass execution model', () => {
         const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
         const content = fse.readFileSync(skillPath, 'utf-8');
+        expect(content).toContain('Pass 0');
         expect(content).toContain('Pass 1');
         expect(content).toContain('Pass 2');
         expect(content).toContain('Pass 3');
-        expect(content).toContain('Two-Pass Model');
+        expect(content).toContain('Multi-Pass Model');
       });
 
       it('contains methodology section in report template', () => {

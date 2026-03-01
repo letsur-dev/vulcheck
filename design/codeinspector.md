@@ -377,10 +377,11 @@ flowchart TD
 
     Scan --> A01["A01: 접근 제어 미흡<br>라우트에 인증 미들웨어 누락"]
     Scan --> A02["A02: 암호화 실패<br>MD5, SHA1, Math.random()"]
-    Scan --> A03["A03: 인젝션<br>SQLi, XSS, 커맨드 인젝션"]
+    Scan --> A03["A03: 인젝션<br>SQLi, XSS, 커맨드 인젝션,<br>NoSQL injection, Prototype Pollution"]
     Scan --> A05["A05: 보안 설정 오류<br>CORS 와일드카드, helmet 미사용"]
-    Scan --> A07["A07: 인증 실패<br>약한 비밀번호, JWT 문제"]
+    Scan --> A07["A07: 인증 실패<br>약한 비밀번호, JWT 문제,<br>Next.js Server Actions 인증"]
     Scan --> A10["A10: SSRF<br>사용자 입력 URL을 fetch/axios에 사용"]
+    Scan --> Extra["추가: Open Redirect,<br>Mass Assignment"]
 
     A01 --> FW["Step 3: 프레임워크별 검사"]
     A02 --> FW
@@ -388,8 +389,9 @@ flowchart TD
     A05 --> FW
     A07 --> FW
     A10 --> FW
+    Extra --> FW
 
-    FW --> CoT["Step 4: CoT 4단계 추론"]
+    FW --> CoT["Step 4: CoT 4단계 추론<br>(Taint Analysis)"]
 
     CoT --> StepA["Step A: 무엇을 발견했는가?<br>패턴 유형 식별"]
     StepA --> StepB["Step B: 데이터가 어디서 오는가?<br>Source 추적 (30-50줄 컨텍스트)"]
@@ -415,13 +417,13 @@ flowchart TD
 
 단순한 정규식 매칭을 넘어서, LLM의 문맥 이해 능력을 활용하여
 **Source (사용자 입력)이 Sink (위험한 함수)에 검증 없이 도달하는지** 추적한다.
-이 과정은 위 CoT의 Step B~D에 해당한다.
+이 과정은 위 CoT의 Step B~D에 해당한다. (Memory Safety 검사는 v2.3에서 제거됨 — 바이브 코딩 사용자가 C/C++ 프로젝트를 개발할 가능성이 낮으므로 스코프에서 제외)
 
 | 구분 | 예시 |
 |------|------|
 | **Source** (입력) | `req.body`, `req.params`, `searchParams`, `Body()`, `request.GET` |
-| **Sink** (위험) | `db.query()`, `innerHTML`, `exec()`, `eval()`, `fetch(userUrl)` |
-| **Sanitizer** (검증) | 파라미터 바인딩, `DOMPurify.sanitize()`, 입력 검증, ORM 자동 파라미터화 |
+| **Sink** (위험) | `db.query()`, `innerHTML`, `exec()`, `eval()`, `fetch(userUrl)`, `collection.find()`, `Object.assign()`, `_.merge()`, `res.redirect()`, `Model.create(req.body)` |
+| **Sanitizer** (검증) | 파라미터 바인딩, `DOMPurify.sanitize()`, 입력 검증, ORM 자동 파라미터화, URL 허용목록 검증, 필드 필터링 |
 
 정규식 매칭 → 30-50줄 컨텍스트 읽기 → Source 역추적 → Sanitizer 확인 → 판정
 
@@ -431,7 +433,7 @@ flowchart TD
 
 **파일**: `vulchk-secrets-scanner.md` | **접두사**: `SEC-{NNN}` | **모델**: haiku | **도구**: Grep + Glob
 
-.gitignore 검증 → 비밀 파일 존재 확인 → 소스 코드 시크릿 Grep → 프론트엔드 노출 검사.
+.gitignore 검증 (**파일 존재 연계** — 해당 파일이 실제로 존재할 때만 보고) → 비밀 파일 존재 확인 → 소스 코드 시크릿 Grep → 프론트엔드 노출 검사.
 테스트 파일의 발견 사항은 LOW로 하향 처리.
 
 ### v2.1 BaaS / Cloud Platform Keys 패턴 추가
@@ -455,8 +457,9 @@ flowchart TD
 
 **파일**: `vulchk-git-history-auditor.md` | **접두사**: `GIT-{NNN}` | **모델**: haiku | **도구**: Bash (git log -p -S)
 
-커밋 diff에서 시크릿 패턴 검색. INCREMENTAL 모드에서는 새 커밋만 대상.
+커밋 diff에서 시크릿 패턴 검색 (15+ 패턴: AWS, GitHub PAT, OpenAI, Stripe, Slack, SendGrid, Supabase, DB 연결 문자열 등). INCREMENTAL 모드에서는 새 커밋만 대상.
 HEAD에 여전히 존재하면 CRITICAL, 이력에만 남아있으면 HIGH.
+**False positive 필터**: test/, fixtures/, .example 파일, placeholder 값(YOUR_KEY_HERE, changeme 등) 자동 제외.
 
 ## 서브에이전트 5: Container & CI/CD Security Analyzer
 

@@ -206,14 +206,14 @@ Initialize methodology tracking if not already present:
 
 ## Step 5: Check for Prior Code Inspector Reports
 
-Look for the most recent codeinspector report:
+Look for the codeinspector report:
 
 ```bash
-LATEST_CI=$(ls -t ./security-report/codeinspector-*.md 2>/dev/null | head -1)
-[ -n "$LATEST_CI" ] && head -80 "$LATEST_CI"
+CI_REPORT="./security-report/codeinspector.md"
+[ -f "$CI_REPORT" ] && head -80 "$CI_REPORT"
 ```
 
-If a report exists, read it to extract findings. These will be passed to the
+If the report exists, read it to extract findings. These will be passed to the
 attack planner to prioritize attack vectors based on known code-level
 vulnerabilities.
 
@@ -378,13 +378,46 @@ Attack plan rejected. You can:
 ```
 Stop execution if rejected.
 
-## Step 8: Launch Attack Executor — Two-Pass Model
+## Step 8: Launch Attack Executor — Multi-Pass Model
 
-After plan approval, execute the attack plan using a phase-based Two-Pass Model.
+After plan approval, execute the attack plan using a phase-based Multi-Pass Model.
 Instead of a single monolithic executor call, launch multiple executor instances
 organized by phase type.
 
 For incremental mode: Only launch phases that have affected scenarios (from `scenarios_filter` in Step 5c).
+
+### Pass 0 — Pre-auth phase (sequential)
+
+Run the `auth` phase first to acquire session tokens before any other phase
+starts. This ensures that injection, app-logic, and other phases can use
+authenticated sessions.
+
+```
+Agent: vulchk-attack-executor
+Prompt: "Execute phase 'auth' of the approved attack plan:
+
+Target URL: {url}
+Intensity: {passive|active|aggressive}
+Phase: auth
+Workspace: .vulchk/hacksim/
+ratatosk available: no (HTTP-only pass)
+{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs for auth phase from Step 5c}
+
+Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
+Read site analysis from .vulchk/hacksim/site-analysis.md
+Write results to .vulchk/hacksim/phases/phase-0-auth.md
+
+Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: 'auth'.
+Do not read or execute sections for other phases.
+
+Acquire session tokens and store them in .vulchk/hacksim/cookies.txt and/or .vulchk/hacksim/jwt.txt.
+Log every attempt and return findings following your instructions."
+```
+
+Wait for Pass 0 to complete before proceeding. Verify session files were created:
+```bash
+ls -la .vulchk/hacksim/cookies.txt .vulchk/hacksim/jwt.txt 2>/dev/null
+```
 
 ### Pass 1 — HTTP-only phases (parallel)
 
@@ -393,7 +426,9 @@ send them in separate messages. Each call launches one executor instance for
 one phase. Only include phases that have scenarios in `attack-scenarios.md`
 (or all phases if `scenarios_filter` is not set).
 
-The 6 phases are: `passive`, `injection`, `auth`, `app-logic`, `business-logic`, `api`.
+The 5 phases are: `passive`, `injection`, `app-logic`, `business-logic`, `api`.
+
+Each phase reads the shared session state acquired in Pass 0.
 
 For each phase, use this prompt:
 
@@ -410,10 +445,11 @@ ratatosk available: no (HTTP-only pass)
 
 Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
 Read site analysis from .vulchk/hacksim/site-analysis.md
+Use session state from .vulchk/hacksim/cookies.txt and/or .vulchk/hacksim/jwt.txt (acquired in Pass 0)
 Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
 
-Approved Attack Plan:
-{full attack plan content from .vulchk/hacksim/attack-plan.md}
+Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: '{phase}'.
+Do not read or execute sections for other phases.
 
 Execute only the tests for the '{phase}' phase.
 Log every attempt and return findings following your instructions."
@@ -422,7 +458,7 @@ Log every attempt and return findings following your instructions."
 Wait for ALL Pass 1 Task calls to complete before proceeding.
 
 After all HTTP phases complete:
-- Merge cookie jars (union of all discovered cookies/tokens):
+- Merge cookie jars (union of all discovered cookies/tokens from Pass 0 and Pass 1):
   ```bash
   # Merge all phase-specific cookie jars into the main one
   for f in .vulchk/hacksim/cookies-*.txt; do
@@ -434,7 +470,7 @@ After all HTTP phases complete:
 ### Pass 2 — Browser phases (sequential)
 
 Only if `RATATOSK_AVAILABLE` is true. Run browser-dependent tests sequentially,
-using the merged session state from Pass 1.
+using the merged session state from Pass 0 and Pass 1.
 
 Check which phases have `Browser Required: yes` scenarios in `attack-scenarios.md`.
 Run those phases one at a time, waiting for each to complete before starting the next.
@@ -456,8 +492,8 @@ Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
 Read site analysis from .vulchk/hacksim/site-analysis.md
 Write results to .vulchk/hacksim/phases/phase-{N}-{phase}-browser.md
 
-Approved Attack Plan:
-{full attack plan content from .vulchk/hacksim/attack-plan.md}
+Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: '{phase}'.
+Do not read or execute sections for other phases.
 
 Execute ONLY scenarios with 'Browser Required: yes'.
 Use the merged session state from .vulchk/hacksim/cookies.txt.
@@ -469,9 +505,9 @@ Log every attempt and return findings following your instructions."
 ### Pass 3 — Exploitation phases (sequential, aggressive only)
 
 Only for `aggressive` intensity. These phases depend on confirmed findings from
-Pass 1/2 and run sequentially.
+Pass 0/1/2 and run sequentially.
 
-Before launching each phase, read the Pass 1/2 result files to identify confirmed
+Before launching each phase, read the Pass 0/1/2 result files to identify confirmed
 vulnerabilities:
 ```bash
 ls .vulchk/hacksim/phases/phase-*.md 2>/dev/null
@@ -497,10 +533,10 @@ Read site analysis from .vulchk/hacksim/site-analysis.md
 Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
 
 Confirmed vulnerabilities to exploit (from earlier phases):
-{list of HSM-{NNN} findings with severity, endpoint, and technique confirmed in Pass 1/2}
+{list of HSM-{NNN} findings with severity, endpoint, and technique confirmed in Pass 0/1/2}
 
-Approved Attack Plan:
-{full attack plan content from .vulchk/hacksim/attack-plan.md}
+Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: '{phase}'.
+Do not read or execute sections for other phases.
 
 Exploit ONLY the confirmed vulnerabilities listed above.
 Log every attempt and return findings following your instructions."
@@ -643,7 +679,7 @@ heading and label with the corresponding translation from the table.
 {...}
 
 **{Total Duration}**: {sum of all phase durations}
-**{Parallelization}**: Pass 1 ({N} phases parallel), Pass 2 ({M} browser sequential)
+**{Parallelization}**: Pass 0 (auth pre-pass), Pass 1 ({N} phases parallel), Pass 2 ({M} browser sequential)
 
 ### {Attack Scenario Coverage}
 

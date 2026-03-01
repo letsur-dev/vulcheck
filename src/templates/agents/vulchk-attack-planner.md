@@ -202,11 +202,17 @@ Compile a list of all discovered:
 ### Step 5: Generate Attack Plan
 
 Based on intensity level and discovered attack surface, generate the plan.
+The plan uses a progressive structure — each intensity includes all phases
+from the previous level plus its own additions.
 
-#### Passive Plan (Intensity 1)
+- **Passive** → Base Plan (Phase 1–3)
+- **Active** → Base Plan + Active Additions (Phase 1–6)
+- **Aggressive** → Base Plan + Active Additions + Aggressive Additions (Phase 1–9)
+
+#### Base Plan (All Intensities)
 
 ```markdown
-## Attack Plan — Passive Reconnaissance
+## Attack Plan — {Passive Reconnaissance | Active Vulnerability Probing | Full Penetration Test}
 
 ### Phase 1: Information Gathering
 - [ ] HTTP security header audit
@@ -228,20 +234,20 @@ Based on intensity level and discovered attack surface, generate the plan.
 - [ ] Cookie configuration assessment
 - [ ] HTTPS enforcement verification
 - [ ] Content-Security-Policy evaluation
+```
 
+**If intensity is passive**, stop here and append:
+```markdown
 ### Estimated Tests: {count}
 ### Vectors: http-fetch only {+ browser if ratatosk available}
 ```
 
-#### Active Plan (Intensity 2)
+#### Active Additions (active + aggressive only)
+
+> Includes all Base Plan phases, plus:
 
 ```markdown
-## Attack Plan — Active Vulnerability Probing
-
-### Phase 1: Reconnaissance (from Passive)
-{all passive checks}
-
-### Phase 2: Injection Testing
+### Phase 4: Injection & Input Validation
 - [ ] XSS reflection probes on: {list discovered input fields}
 - [ ] SQL injection detection on: {list data-accepting endpoints}
   - Error-based detection (single quote, double quote)
@@ -252,7 +258,7 @@ Based on intensity level and discovered attack surface, generate the plan.
 - [ ] NoSQL operator injection (if MongoDB/NoSQL detected): $ne/$regex probe on JSON login/search endpoints
 - [ ] Supabase checks (if Supabase detected): anon key exposure, RLS bypass via /rest/v1/, service_role key in source
 
-### Phase 3: Authentication & Authorization
+### Phase 5: Authentication & Authorization
 - [ ] Default credential testing on: {login endpoints}
 - [ ] JWT analysis (if JWT detected):
   - Algorithm confusion (none algorithm)
@@ -263,8 +269,6 @@ Based on intensity level and discovered attack surface, generate the plan.
   - Logout completeness
   - Concurrent session handling
 - [ ] IDOR probes on: {list resource endpoints with IDs}
-
-### Phase 4: Application Logic
 - [ ] CSRF token validation on: {list state-changing forms/APIs}
 - [ ] HTTP method tampering on: {list API endpoints}
 - [ ] Mass assignment testing on: {list update endpoints}
@@ -272,30 +276,31 @@ Based on intensity level and discovered attack surface, generate the plan.
 - [ ] SSRF probes on: {list URL-accepting parameters}
 - [ ] Rate limiting assessment on: {auth endpoints}
 
-### Phase 5: Business Logic Testing
+### Phase 6: Business Logic & API Testing
 - [ ] IDOR probes: Access other users' resources by modifying ID parameters
 - [ ] Price/value manipulation: Modify price, quantity, discount in requests
 - [ ] Workflow bypass: Skip required steps, reuse one-time tokens
 - [ ] Role/privilege escalation: Modify role fields in update requests
 - [ ] Rate limit assessment: Test enforcement on critical endpoints
 {include test cases from Step 3c}
-
-### Phase 6: API-Specific (if applicable)
-- [ ] GraphQL introspection query
+- [ ] GraphQL introspection query (if applicable)
 - [ ] GraphQL query depth/complexity abuse
 - [ ] REST API endpoint enumeration
 - [ ] API versioning bypass (v1 vs v2)
+```
 
+**If intensity is active**, stop here and append:
+```markdown
 ### Estimated Tests: {count}
 ### Vectors: http-fetch {+ browser if ratatosk available}
 ### Safe Payloads: All probes use detection-only payloads
 ```
 
-#### Aggressive Plan (Intensity 3)
+#### Aggressive Additions (aggressive only)
+
+> Includes all Active phases, plus:
 
 ```markdown
-## Attack Plan — Full Penetration Test
-
 ⚠ WARNING: Aggressive testing may trigger security monitoring,
 WAF blocks, or rate limiting on the target.
 
@@ -304,9 +309,6 @@ deletion, or service disruption. It is STRONGLY RECOMMENDED to run
 aggressive tests only against staging/test environments with dummy data.
 Do NOT run against production systems with real user data unless you
 have explicit written authorization from the system owner.
-
-### Phase 1-6: (all Active checks)
-{include all phases from Active plan}
 
 ### Phase 7: Exploitation
 - [ ] SQL injection data extraction (if SQLi confirmed):

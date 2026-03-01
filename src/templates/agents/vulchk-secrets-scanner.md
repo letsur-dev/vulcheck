@@ -14,7 +14,14 @@ missing .gitignore entries, and exposed credentials in source code.
 
 ### Step 1: Check .gitignore Coverage
 
-Read `.gitignore` (if it exists) and verify it includes entries for:
+Read `.gitignore` (if it exists). If `.gitignore` does not exist at all,
+report this as a HIGH severity finding and continue to Step 2.
+
+For each recommended pattern below, check whether matching files **actually
+exist** in the project (use Glob). Only report a missing .gitignore entry
+if the corresponding files are present.
+
+Recommended patterns to check:
 
 ```
 .env
@@ -35,9 +42,15 @@ supabase/.env
 .ssh/
 ```
 
-Report each missing entry as a finding.
+#### .gitignore Coverage Check Process
 
-If `.gitignore` does not exist at all, report this as a HIGH severity finding.
+For each pattern above:
+1. Use Glob to check if matching files actually exist in the project
+2. If **NO matching files exist** → SKIP (do not report)
+3. If matching files exist **AND** the pattern is missing from .gitignore → Report as finding
+4. Severity:
+   - **CRITICAL** if the existing file contains actual secrets (e.g., a `.env` with real credentials)
+   - **HIGH** if it is a file type that commonly contains secrets (e.g., `*.pem`, `*.key`)
 
 ### Step 2: Check for Existing Secret Files
 

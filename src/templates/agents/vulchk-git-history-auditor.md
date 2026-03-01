@@ -30,20 +30,49 @@ GIT HISTORY AUDIT SKIPPED: Not a git repository
 Use Bash to run `git log` searches. Search the DIFF content of all commits
 for secret patterns. Limit to the most recent 500 commits to avoid timeout.
 
+Do NOT use `--diff-filter=A` — it only matches commits where the file was
+first added, missing secrets inserted into existing files. The `-S` flag
+alone correctly finds any commit whose diff adds or removes the search string.
+
 ```bash
 # AWS Access Keys
-git log -p --all -S 'AKIA' --diff-filter=A -- '*.js' '*.ts' '*.py' '*.go' '*.java' '*.rb' '*.php' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -200
+git log -p --all -S 'AKIA' -- '*.js' '*.ts' '*.py' '*.go' '*.java' '*.rb' '*.php' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -200
 
-# Private keys
-git log -p --all -S 'BEGIN RSA PRIVATE KEY' --diff-filter=A | head -100
-git log -p --all -S 'BEGIN OPENSSH PRIVATE KEY' --diff-filter=A | head -100
+# Private keys (generic header catches RSA, EC, DSA, OPENSSH)
+git log -p --all -S 'PRIVATE KEY' | head -100
 
 # Generic high-entropy secrets (password/token/secret assignments)
-git log -p --all -S 'password' --diff-filter=A -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' '*.ini' '*.conf' | head -200
+git log -p --all -S 'password' -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' '*.ini' '*.conf' | head -200
 
 # API keys
-git log -p --all -S 'api_key' --diff-filter=A -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -200
-git log -p --all -S 'apiKey' --diff-filter=A -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -200
+git log -p --all -S 'api_key' -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -200
+git log -p --all -S 'apiKey' -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -200
+
+# GitHub Personal Access Tokens
+git log -p --all -S 'ghp_' -- '*.js' '*.ts' '*.py' '*.go' '*.java' '*.rb' '*.php' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -100
+
+# OpenAI API Keys
+git log -p --all -S 'sk-' -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' '*.ini' '*.conf' | head -100
+
+# Stripe Secret Keys
+git log -p --all -S 'sk_live_' -- '*.js' '*.ts' '*.py' '*.go' '*.java' '*.rb' '*.php' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -100
+
+# Slack Tokens
+git log -p --all -S 'xoxb-' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -100
+git log -p --all -S 'xoxp-' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -100
+
+# SendGrid API Keys
+git log -p --all -S 'SG.' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' | head -100
+
+# Supabase secrets
+git log -p --all -S 'service_role' -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.js' '*.ts' | head -100
+git log -p --all -S 'jwt_secret' -- '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.js' '*.ts' | head -100
+
+# Database connection strings with credentials
+git log -p --all -S 'mongodb+srv://' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' | head -100
+git log -p --all -S 'mongodb://' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' | head -100
+git log -p --all -S 'postgres://' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' | head -100
+git log -p --all -S 'mysql://' -- '*.js' '*.ts' '*.py' '*.env' '*.yaml' '*.yml' '*.json' '*.toml' '*.cfg' | head -100
 ```
 
 ### Step 3: Search for Removed Secret Files
@@ -98,6 +127,19 @@ For each potential secret found in git history:
 GIT HISTORY AUDIT COMPLETE: {commits_checked} commits checked, {vuln_count} leaked secrets found ({critical} critical, {high} high)
 ```
 
+## False Positive Criteria
+
+Mark as FALSE POSITIVE and exclude from the report if **ANY** of these
+conditions are true:
+
+- **File path** contains: `test/`, `__tests__/`, `__mocks__/`, `fixtures/`, `examples/`, `docs/`
+- **File extension** is: `.example`, `.sample`, `.template`
+- **Value is a known placeholder**: `"YOUR_KEY_HERE"`, `"xxx"`, `"changeme"`, `"placeholder"`, `"REPLACE_ME"`, `"dummy"`, `"fake"`, `"test"`
+- **Value is a variable reference**: starts with `$` or `%` (e.g., `$ENV_VAR`, `%SECRET%`)
+- **The line is a comment**: starts with `#`, `//`, `/*`, or `--`
+
+When in doubt, include the finding but mark it with a note: `(possible false positive — verify manually)`.
+
 ## Important Notes
 
 - ALWAYS redact secret values — show only first 4 and last 4 characters
@@ -106,4 +148,3 @@ GIT HISTORY AUDIT COMPLETE: {commits_checked} commits checked, {vuln_count} leak
   rather than noisy false positives
 - If the repo has too many commits (>5000), note this in the summary
   and recommend running a dedicated tool like `trufflehog` or `gitleaks`
-- Ignore secrets in test fixtures, mocks, or example files when possible

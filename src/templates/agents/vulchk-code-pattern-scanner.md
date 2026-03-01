@@ -36,6 +36,18 @@ app\.(get|post|put|delete|patch)\s*\([^)]*\)\s*=>   # Express routes without mid
 
 Read route definitions and check if authentication/authorization middleware is applied.
 
+#### Open Redirect
+Grep for redirect functions using user-controlled input:
+- `res\.redirect\(req\.(query|body|params)`
+- `redirect\(request\.(GET|POST|query_params)`
+- `location\.href\s*=\s*req\.(query|body)`
+- `window\.location\s*=.*(?:searchParams|URLSearchParams|query)`
+- `next=` or `redirect=` or `return_url=` or `callback=` parameters used in redirect without validation
+
+Apply Taint Analysis to verify user input reaches redirect target without URL validation (allowlist check).
+
+**Severity**: MEDIUM (HIGH if combined with OAuth flows — can steal authorization codes)
+
 #### A02: Cryptographic Failures (CWE-327)
 
 ```
@@ -76,6 +88,35 @@ subprocess\.(call|run|Popen)\(.*f["']  # Python subprocess with f-string
 os\.system\s*\(                     # Python os.system
 eval\s*\(                           # eval in any language
 ```
+
+#### NoSQL Injection Patterns
+Grep for MongoDB operator injection from user input:
+- `\$ne`, `\$gt`, `\$lt`, `\$regex`, `\$where`, `\$exists` operators in query objects constructed from request parameters
+- `JSON.parse(req.body)` or `JSON.parse(req.query)` passed directly to MongoDB find/update
+- `collection\.(find|update|delete|aggregate)\(.*req\.(body|query|params)`
+
+Apply Taint Analysis (Step 4) to confirm user input reaches MongoDB query operators.
+
+#### Prototype Pollution
+Grep for patterns where user input flows into object merge/extend operations:
+- `Object\.assign\(\s*\{\}.*req\.(body|query)`
+- `lodash\.(merge|defaultsDeep|set)\(.*req\.(body|query)`
+- `_\.(merge|defaultsDeep|set)\(.*req\.(body|query)`
+- `\.\.\.(req\.body|req\.query)` (spread operator from user input into object)
+- Direct property assignment from user input: `obj\[req\.(body|query|params)\.\w+\]`
+
+**Severity**: HIGH — can lead to DoS or RCE via `__proto__` or `constructor.prototype` manipulation.
+
+#### Mass Assignment
+Grep for patterns where entire request body is passed to model create/update:
+- `Model\.(create|update|findByIdAndUpdate|findOneAndUpdate)\(.*req\.body`
+- `Object\.assign\(\s*\w+,\s*req\.body\)` (merging req.body into existing object)
+- `new\s+\w+\(req\.body\)` (constructor with full request body)
+- `\.save\(\)` preceded by spread: `{ ...req.body }` into model
+- Prisma: `prisma\.\w+\.(create|update)\(\s*\{\s*data:\s*req\.body`
+
+**Severity**: HIGH — allows attackers to set privileged fields (role, isAdmin, verified).
+Apply Taint Analysis to confirm req.body reaches model operations without field filtering.
 
 #### A04: Insecure Design (CWE-209)
 
@@ -165,6 +206,14 @@ middleware\.(ts|js)                   # Check middleware exists and validates au
 Check: Are `getServerSideProps` / Server Actions properly protecting data?
 Check: Does `next.config.js` have proper security headers?
 
+#### Next.js Server Actions Authentication
+For files containing `"use server"` directive:
+- Check that each exported async function calls `auth()`, `getServerSession()`, `getSession()`, or equivalent authentication function
+- Server Actions without auth checks that perform data mutations (database writes, file operations) are CRITICAL
+- `"use server"` files that only read public data are acceptable without auth
+
+Grep: `"use server"` → then check each `export async function` for auth call presence
+
 #### FastAPI
 
 ```
@@ -177,17 +226,7 @@ SQLAlchemy.*text\s*\(.*f["']                     # Raw SQL with f-string
 Check: Is `OAuth2PasswordBearer` or equivalent used?
 Check: Are request models validated with Pydantic?
 
-### Step 4: Memory Safety (for C/C++/Rust)
-
-If applicable:
-```
-malloc\s*\(.*without.*free          # Memory leaks
-strcpy|strcat|sprintf               # Unsafe string functions
-gets\s*\(                           # gets() — always unsafe
-free\s*\(.*free\s*\(                # Double free
-```
-
-### Step 5: Taint Analysis — Source-to-Sink Data Flow Tracking
+### Step 4: Taint Analysis — Source-to-Sink Data Flow Tracking
 
 After regex pattern matching, perform **contextual taint analysis** on every
 match. A regex hit alone is NOT a confirmed vulnerability — you must verify
@@ -280,7 +319,7 @@ Read each caller to determine if the Source is user-controlled.
 | Sink receives only server-generated data | False positive — remove |
 | Source→Sink but behind auth middleware | Note in remediation, keep severity |
 
-### Step 6: Format Findings
+### Step 5: Format Findings
 
 Return findings in this exact format:
 
@@ -298,7 +337,7 @@ Return findings in this exact format:
 - **Remediation**: {specific fix with code example if possible}
 ```
 
-### Step 7: Summary
+### Step 6: Summary
 
 ```
 CODE PATTERN SCAN COMPLETE: {files_scanned} files scanned, {vuln_count} patterns found ({critical} critical, {high} high, {medium} medium, {low} low). Taint analysis performed: {confirmed} confirmed, {potential} potential, {false_positives} false positives removed
@@ -306,7 +345,7 @@ CODE PATTERN SCAN COMPLETE: {files_scanned} files scanned, {vuln_count} patterns
 
 ## Important Notes
 
-- **Always perform taint analysis** (Step 5) before reporting — a regex match
+- **Always perform taint analysis** (Step 4) before reporting — a regex match
   without Source→Sink verification is insufficient
 - Read surrounding code context (30-50 lines) before reporting
 - For framework checks, verify both import AND usage (importing helmet
