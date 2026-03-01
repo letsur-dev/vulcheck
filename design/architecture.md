@@ -208,9 +208,16 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 
 ```
 ./security-report/
-├── codeinspector-2025-01-15-143022.md    → 코드 점검 리포트
-└── hacksimulator-2025-01-15-150530.md    → 모의 침투 테스트 리포트
+├── codeinspector.md                      → 코드 점검 리포트 (단일 파일, 증분 업데이트)
+└── hacksimulator-2025-01-15-150530.md    → 모의 침투 테스트 리포트 (실행별 새 파일)
 ```
+
+**codeinspector**: 단일 파일로 관리되며, 실행할 때마다 덮어쓴다.
+리포트 헤더에 기준 커밋 해시가 기록되어 있어, 다음 실행 시
+두 커밋 간 diff 기반으로 증분 업데이트한다. 커밋되지 않은
+변경사항이 있으면 실행을 거부한다.
+
+**hacksimulator**: 실행할 때마다 타임스탬프가 붙은 새 파일이 생성된다.
 
 리포트는 SKILL.md에 내장된 i18n 번역 테이블을 사용하여 LLM이 생성하는
 **마크다운 파일**이다. 보안 용어(CVE, XSS, CSRF, OWASP, CWE)는 언어 설정과

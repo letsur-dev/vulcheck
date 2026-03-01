@@ -6,6 +6,14 @@
 `vulchk-codeinspector` SKILL.md가 오케스트레이터 역할을 하며, 최대 5개의
 서브에이전트를 **병렬로** 실행한 후 결과를 하나의 리포트로 병합한다.
 
+### 핵심 특징
+
+- **단일 파일 리포트**: `./security-report/codeinspector.md` (타임스탬프 없음)
+- **커밋 기반 추적**: 어떤 커밋 기준으로 분석했는지 리포트에 기록
+- **증분 분석**: 두 번째 실행부터는 변경된 파일 + 관련 파일만 재분석
+- **클린 커밋 필수**: 커밋되지 않은 변경사항이 있으면 실행 거부
+- **정확한 위치**: 모든 발견 사항에 `파일:줄번호` 포함
+
 ## 전체 실행 시퀀스
 
 ```mermaid
@@ -21,57 +29,82 @@ sequenceDiagram
     사용자->>Skill: /vulchk.codeinspector
 
     rect rgb(240, 248, 255)
-        Note over Skill: Step 0: .vulchk/config.json 읽기
-        Skill->>Skill: 설정 로드 → language, version
+        Note over Skill: Step 0: 설정 읽기
+        Skill->>Skill: .vulchk/config.json → language, version
+    end
+
+    rect rgb(255, 245, 245)
+        Note over Skill: Step 1: Git 상태 확인 + 모드 결정
+        Skill->>Skill: git status --porcelain
+        alt 커밋 안 된 변경 있음
+            Skill-->>사용자: "커밋 후 다시 실행해주세요"
+            Note over Skill: 실행 중단
+        else 클린 상태
+            Skill->>Skill: git rev-parse --short HEAD
+            Skill->>Skill: 기존 리포트 확인
+            alt 리포트 없음
+                Note over Skill: MODE = FULL_SCAN
+            else 리포트 있음 + 커밋 변경됨
+                Note over Skill: MODE = INCREMENTAL
+            else 리포트 있음 + 같은 커밋
+                Skill-->>사용자: "변경 없음, 리포트 최신"
+                Note over Skill: 실행 중단
+            end
+        end
     end
 
     rect rgb(240, 248, 255)
-        Note over Skill: Step 1: 기술 스택 감지
-        Skill->>Skill: Glob으로 매니페스트 탐색<br>(package.json, pyproject.toml, go.mod, ...)
-        Skill->>Skill: 주요 설정 파일 읽기
-        Skill-->>사용자: 감지된 스택 + 분석 계획 표시
+        Note over Skill: Step 2: 기술 스택 감지
+        Skill-->>사용자: 감지된 스택 + 분석 계획
+    end
+
+    rect rgb(255, 252, 240)
+        Note over Skill: Step 3: 스캔 범위 결정
+        alt FULL_SCAN
+            Note over Skill: 전체 프로젝트 스캔
+        else INCREMENTAL
+            Skill->>Skill: git diff --name-only {prev}..HEAD
+            Skill->>Skill: 변경 파일의 import/export 관계 추적
+            Skill->>Skill: 기존 리포트에서 발견 사항 파싱
+        end
     end
 
     rect rgb(255, 248, 240)
-        Note over Skill,A5: Step 2: 서브에이전트 병렬 실행
+        Note over Skill,A5: Step 4: 서브에이전트 병렬 실행
         par 에이전트 1
             Skill->>A1: Task → vulchk-dependency-auditor
-            A1->>A1: 매니페스트 탐지 → 의존성 추출 → OSV API 조회
             A1-->>Skill: DEP-{NNN} 발견 사항
         and 에이전트 2
             Skill->>A2: Task → vulchk-code-pattern-scanner
-            A2->>A2: 스택 감지 → OWASP 패턴 Grep → 프레임워크별 검사
             A2-->>Skill: CODE-{NNN} 발견 사항
         and 에이전트 3
             Skill->>A3: Task → vulchk-secrets-scanner
-            A3->>A3: .gitignore 검증 → 시크릿 스캔 → 프론트엔드 노출 검사
             A3-->>Skill: SEC-{NNN} 발견 사항
         and 에이전트 4
             Skill->>A4: Task → vulchk-git-history-auditor
-            A4->>A4: git log -p -S로 패턴 검색 → .env 이력 확인
             A4-->>Skill: GIT-{NNN} 발견 사항
         and 에이전트 5 (조건부)
             Skill->>A5: Task → vulchk-container-security-analyzer
-            Note over A5: Dockerfile/K8s가 있을 때만 실행
-            A5->>A5: Dockerfile 검사 → Compose 검사 → K8s 검사
             A5-->>Skill: CTR-{NNN} 발견 사항
         end
     end
 
     rect rgb(240, 255, 240)
-        Note over Skill: Step 3: 결과 병합
-        Skill->>Skill: 중복 제거 (같은 file:line)
-        Skill->>Skill: 순차 번호 부여
-        Skill->>Skill: 심각도 순 정렬
+        Note over Skill: Step 5: 결과 병합
+        alt FULL_SCAN
+            Skill->>Skill: 중복 제거 → 번호 부여 → 정렬
+        else INCREMENTAL
+            Skill->>Skill: 기존 발견 사항에서 변경 파일 관련 항목 제거
+            Skill->>Skill: 새 발견 사항 추가 → 재번호 → 재정렬
+        end
     end
 
     rect rgb(240, 255, 240)
-        Note over Skill: Step 4: 리포트 생성
-        Skill->>Skill: mkdir -p ./security-report
-        Skill->>Skill: codeinspector-{timestamp}.md 작성
+        Note over Skill: Step 6: 리포트 생성 (단일 파일 덮어쓰기)
+        Skill->>Skill: ./security-report/codeinspector.md 작성
     end
 
-    Skill-->>사용자: Step 5: 요약 표시
+    Skill-->>사용자: Step 7: 요약 표시
 ```
 
 ## 단계별 알고리즘
@@ -84,7 +117,33 @@ sequenceDiagram
   → 파일 없으면: "en"으로 기본 설정, `vulchk init` 실행 권고 경고
 ```
 
-### Step 1: 기술 스택 감지
+### Step 1: Git 상태 확인 + 모드 결정
+
+이 단계가 전체 실행 흐름의 핵심 분기점이다.
+
+```mermaid
+flowchart TD
+    Start([시작]) --> GitStatus["git status --porcelain"]
+    GitStatus --> Dirty{"커밋 안 된<br>변경사항?"}
+
+    Dirty -->|있음| Stop1["사용자에게 안내:<br>'커밋 후 다시 실행해주세요'<br>실행 중단"]
+
+    Dirty -->|없음| GetCommit["git rev-parse --short HEAD<br>현재 커밋 해시 획득"]
+    GetCommit --> CheckReport{"기존 리포트<br>존재?"}
+
+    CheckReport -->|없음| FullScan["MODE = FULL_SCAN"]
+
+    CheckReport -->|있음| ParseReport["리포트 헤더에서<br>기준 커밋 해시 추출"]
+    ParseReport --> SameCommit{"같은 커밋?"}
+
+    SameCommit -->|예| Stop2["'변경 없음, 리포트 최신'<br>실행 중단"]
+    SameCommit -->|아니오| Incremental["MODE = INCREMENTAL<br>이전 커밋 해시 저장"]
+
+    FullScan --> Step2[Step 2로 진행]
+    Incremental --> Step2
+```
+
+### Step 2: 기술 스택 감지
 
 스킬이 Glob을 사용해 프로젝트 루트에서 다음 파일들을 확인한다:
 
@@ -112,14 +171,71 @@ flowchart LR
     VC --> Stack
 ```
 
-감지된 스택에 따라 결정되는 것:
-- 어떤 서브에이전트를 실행할지 (container-security는 조건부)
-- 각 서브에이전트에 전달할 컨텍스트 (프레임워크별 검사 항목)
+### Step 3: 스캔 범위 결정
 
-### Step 2: 서브에이전트 병렬 실행
+#### FULL_SCAN 모드
+
+모든 서브에이전트가 프로젝트 전체를 스캔한다.
+
+#### INCREMENTAL 모드
+
+```mermaid
+flowchart TD
+    Start([시작]) --> Diff["git diff --name-only {prev_commit}..HEAD"]
+    Diff --> Categorize["변경 파일 분류"]
+
+    Categorize --> Manifests{"매니페스트 파일<br>변경?"}
+    Manifests -->|예| RunDep["dependency-auditor 재실행"]
+
+    Categorize --> Source{"소스 코드<br>변경?"}
+    Source -->|예| FindRelated["관련 파일 추적"]
+    FindRelated --> ImportedBy["grep -rl 'import.*{파일}'<br>이 파일을 import하는 파일들"]
+    FindRelated --> Imports["grep 'import\\|require' {파일}<br>이 파일이 import하는 파일들"]
+    ImportedBy --> RunCode["code-pattern-scanner 재실행<br>(변경 파일 + 관련 파일)"]
+    Imports --> RunCode
+
+    Categorize --> SecretFiles{".gitignore, .env*,<br>시크릿 관련 변경?"}
+    SecretFiles -->|예| RunSecrets["secrets-scanner 재실행"]
+
+    Categorize --> Always["항상 재실행"]
+    Always --> RunGit["git-history-auditor<br>(새 커밋만 검색)"]
+
+    Categorize --> ContainerFiles{"Dockerfile, K8s<br>매니페스트 변경?"}
+    ContainerFiles -->|예| RunContainer["container-security 재실행"]
+
+    RunDep --> ParseExisting["기존 리포트에서<br>발견 사항 파싱"]
+    RunCode --> ParseExisting
+    RunSecrets --> ParseExisting
+    RunGit --> ParseExisting
+    RunContainer --> ParseExisting
+
+    ParseExisting --> RemoveOld["변경 파일 관련<br>기존 발견 사항 제거"]
+    RemoveOld --> Step4["Step 4: 해당 에이전트만 실행"]
+```
+
+변경 파일 → 에이전트 매핑:
+
+| 변경 파일 패턴 | 재실행할 에이전트 |
+|--------------|----------------|
+| `package.json`, `*lock*`, `requirements.txt`, `go.mod` 등 | dependency-auditor |
+| `*.js`, `*.ts`, `*.py`, `*.go` 등 소스 코드 | code-pattern-scanner |
+| `.gitignore`, `.env*`, `*.pem`, `*.key` 등 | secrets-scanner |
+| (항상 — 새 커밋 대상) | git-history-auditor |
+| `Dockerfile*`, `docker-compose*`, `k8s/**` 등 | container-security-analyzer |
+
+**관련 파일 추적이 중요한 이유**: `utils/db.js`가 변경되었으면, 이를
+import하는 `api/users.js`, `api/orders.js` 등도 재분석해야 한다.
+변경된 유틸리티 함수가 새로운 취약점을 유발할 수 있기 때문이다.
+
+### Step 4: 서브에이전트 병렬 실행
 
 해당하는 모든 에이전트가 **하나의 메시지에서** (여러 Task 도구 호출)
 실행된다. 즉, 동시에 병렬로 실행된다.
+
+INCREMENTAL 모드에서는 각 에이전트에 추가 컨텍스트를 전달한다:
+- 변경된 파일 목록
+- 관련 파일 목록
+- "이 파일들만 스캔하라"는 지시
 
 ---
 
@@ -155,7 +271,7 @@ flowchart TD
     APIFail -->|예| Fallback["폴백: npm audit /<br>pip-audit / govulncheck"]
     APIFail -->|아니오| FormatFindings
 
-    Fallback --> FormatFindings["DEP-{NNN} 형식으로 포맷"]
+    Fallback --> FormatFindings["DEP-{NNN} 형식으로 포맷<br>위치: package.json:줄번호"]
     FormatFindings --> Summary["요약 반환"]
     Summary --> End([끝])
 ```
@@ -232,282 +348,165 @@ flowchart TD
     Scan --> A01["A01: 접근 제어 미흡<br>라우트에 인증 미들웨어 누락"]
     Scan --> A02["A02: 암호화 실패<br>MD5, SHA1, Math.random()"]
     Scan --> A03["A03: 인젝션<br>SQLi, XSS, 커맨드 인젝션"]
-    Scan --> A04["A04: 안전하지 않은 설계<br>스택 트레이스 노출"]
     Scan --> A05["A05: 보안 설정 오류<br>CORS 와일드카드, helmet 미사용"]
     Scan --> A07["A07: 인증 실패<br>약한 비밀번호, JWT 문제"]
-    Scan --> A08["A08: 데이터 무결성 실패<br>안전하지 않은 역직렬화"]
-    Scan --> A09["A09: 로깅 실패<br>로깅 미구현"]
     Scan --> A10["A10: SSRF<br>사용자 입력 URL을 fetch/axios에 사용"]
 
     A01 --> FW["Step 3: 프레임워크별 검사"]
     A02 --> FW
     A03 --> FW
-    A04 --> FW
     A05 --> FW
     A07 --> FW
-    A08 --> FW
-    A09 --> FW
     A10 --> FW
 
-    FW --> Express["Express: helmet, rate-limit,<br>child_process 사용"]
-    FW --> NextJS["Next.js: API 라우트 인증,<br>NEXT_PUBLIC_ 노출, middleware"]
-    FW --> FastAPI["FastAPI: Depends(),<br>CORS, Pydantic 유효성 검증"]
-    FW --> Memory["C/C++: malloc/free,<br>strcpy, gets()"]
-
-    Express --> Context["주변 코드 10-20줄 읽기<br>(오탐 필터링)"]
-    NextJS --> Context
-    FastAPI --> Context
-    Memory --> Context
-
-    Context --> Format["CODE-{NNN} 형식으로 포맷"]
+    FW --> Context["주변 코드 10-20줄 읽기<br>(오탐 필터링)"]
+    Context --> Format["CODE-{NNN} 형식으로 포맷<br>위치: 파일경로:줄번호"]
     Format --> End([끝])
 ```
 
-### 주요 패턴 카테고리
+제외 대상: `node_modules/`, `.git/`, `vendor/`, `__pycache__/`, `dist/`, `build/`, `*.min.js`
 
-각 OWASP 카테고리에 특정 정규식 패턴이 있다. 스캐너는 모든 소스 파일에 대해
-Grep을 실행하되, 다음은 **제외**한다:
-`node_modules/`, `.git/`, `vendor/`, `__pycache__/`, `dist/`, `build/`, `*.min.js`
-
-패턴이 매칭되면, 에이전트가 **주변 컨텍스트 (10-20줄)**을 읽어서
-실제 취약점인지 판단한다. 예:
-- `innerHTML =`이지만 입력이 sanitize된 경우 → 취약점 아님
-- `helmet`을 import했지만 `app.use(helmet())`을 호출하지 않은 경우 → 취약점
+패턴이 매칭되면 **주변 컨텍스트 (10-20줄)**을 읽어서 실제 취약점인지 판단한다.
 
 ---
 
 ## 서브에이전트 3: Secrets Scanner
 
-**파일**: `vulchk-secrets-scanner.md`
-**발견 사항 접두사**: `SEC-{NNN}`
-**주요 도구**: Grep + Glob
+**파일**: `vulchk-secrets-scanner.md` | **접두사**: `SEC-{NNN}` | **도구**: Grep + Glob
 
-### 알고리즘
-
-```mermaid
-flowchart TD
-    Start([시작]) --> GitIgnore["Step 1: .gitignore 읽기<br>.env, *.pem, *.key 등 포함 여부 확인"]
-
-    GitIgnore --> NoGitIgnore{".gitignore<br>없음?"}
-    NoGitIgnore -->|예| HighFinding["HIGH 심각도로 보고"]
-    NoGitIgnore -->|아니오| MissingEntries["누락 항목별 보고"]
-
-    HighFinding --> SecretFiles
-    MissingEntries --> SecretFiles
-
-    SecretFiles["Step 2: 비밀 파일 Glob 검색<br>.env, *.pem, *.key, credentials.json"]
-    SecretFiles --> Exists{"파일 존재 AND<br>.gitignore에 없음?"}
-    Exists -->|예| HighFinding2["HIGH로 보고"]
-    Exists -->|아니오| Skip["건너뛰기"]
-
-    HighFinding2 --> CodeScan
-    Skip --> CodeScan
-
-    CodeScan["Step 3: 소스 코드에서 시크릿 Grep"]
-    CodeScan --> AWS["AKIA... (AWS 키)"]
-    CodeScan --> GH["ghp_... (GitHub 토큰)"]
-    CodeScan --> Stripe["sk_live_... (Stripe 키)"]
-    CodeScan --> OpenAI["sk-... (OpenAI 키)"]
-    CodeScan --> Password["password= / secret= / api_key="]
-    CodeScan --> PrivKey["BEGIN PRIVATE KEY"]
-    CodeScan --> ConnStr["postgres://user:pass@..."]
-
-    AWS --> Frontend
-    GH --> Frontend
-    Stripe --> Frontend
-    OpenAI --> Frontend
-    Password --> Frontend
-    PrivKey --> Frontend
-    ConnStr --> Frontend
-
-    Frontend["Step 4: 프론트엔드 노출 검사<br>public/, static/, assets/ 내 시크릿<br>NEXT_PUBLIC_에 비밀값 포함 여부"]
-    Frontend --> Format["SEC-{NNN} 형식으로 포맷<br>값은 반드시 마스킹"]
-    Format --> End([끝])
-```
-
-### 테스트 파일 처리
-
-`*test*`, `*spec*`, `*mock*`, `*fixture*` 패턴에 매칭되는 파일의 발견 사항은
-HIGH 대신 LOW 심각도로 하향 처리된다 (예: 테스트 파일의 `password = "test123"`).
-
----
+.gitignore 검증 → 비밀 파일 존재 확인 → 소스 코드 시크릿 Grep → 프론트엔드 노출 검사.
+테스트 파일의 발견 사항은 LOW로 하향 처리.
 
 ## 서브에이전트 4: Git History Auditor
 
-**파일**: `vulchk-git-history-auditor.md`
-**발견 사항 접두사**: `GIT-{NNN}`
-**주요 도구**: Bash (git log -p -S)
+**파일**: `vulchk-git-history-auditor.md` | **접두사**: `GIT-{NNN}` | **도구**: Bash (git log -p -S)
 
-### 알고리즘
-
-```mermaid
-flowchart TD
-    Start([시작]) --> GitCheck["Step 1: git rev-parse --is-inside-work-tree"]
-    GitCheck --> IsRepo{"Git 저장소?"}
-    IsRepo -->|아니오| SkipAll["반환: SKIPPED"]
-    IsRepo -->|예| SearchPatterns
-
-    SearchPatterns["Step 2: 커밋 diff에서 시크릿 검색"]
-    SearchPatterns --> P1["git log -p -S 'AKIA' (AWS 키)"]
-    SearchPatterns --> P2["git log -p -S 'BEGIN RSA PRIVATE KEY'"]
-    SearchPatterns --> P3["git log -p -S 'password' -- *.env *.yaml"]
-    SearchPatterns --> P4["git log -p -S 'api_key' -- *.env *.yaml"]
-
-    P1 --> Removed
-    P2 --> Removed
-    P3 --> Removed
-    P4 --> Removed
-
-    Removed["Step 3: 삭제된 비밀 파일 검색<br>git log --diff-filter=D -- '.env' '*.pem'"]
-    Removed --> EnvHistory["Step 4: .env 커밋 이력 확인<br>git log --all -- '.env'"]
-
-    EnvHistory --> Analyze["Step 5: 발견된 각 시크릿에 대해:"]
-    Analyze --> InHead{"현재 HEAD에<br>여전히 존재?"}
-    InHead -->|예| Critical["CRITICAL 심각도"]
-    InHead -->|아니오| High["HIGH 심각도<br>(git 이력에 여전히 남아있음)"]
-
-    Critical --> Format["GIT-{NNN} 형식으로 포맷"]
-    High --> Format
-    Format --> End([끝])
-```
-
-### 제한 사항
-
-- 최대 500개 최근 커밋만 검색
-- git 검색 출력은 `head -200`으로 제한 (타임아웃 방지)
-- 커밋 5000개 초과 시 전용 도구(trufflehog, gitleaks) 사용 권장
-
----
+커밋 diff에서 시크릿 패턴 검색. INCREMENTAL 모드에서는 새 커밋만 대상.
+HEAD에 여전히 존재하면 CRITICAL, 이력에만 남아있으면 HIGH.
 
 ## 서브에이전트 5: Container Security Analyzer
 
-**파일**: `vulchk-container-security-analyzer.md`
-**발견 사항 접두사**: `CTR-{NNN}`
-**주요 도구**: Read + Grep
-**실행 조건**: Dockerfile, docker-compose, 또는 K8s 매니페스트가 감지된 경우에만
+**파일**: `vulchk-container-security-analyzer.md` | **접두사**: `CTR-{NNN}` | **도구**: Read + Grep
 
-### 알고리즘
-
-```mermaid
-flowchart TD
-    Start([시작]) --> FindFiles["Step 1: Glob으로 컨테이너 파일 탐색"]
-    FindFiles --> Found{"파일 발견?"}
-    Found -->|아니오| Skip["반환: SKIPPED"]
-    Found -->|예| DockerCheck
-
-    DockerCheck["Step 2: Dockerfile 분석"]
-    DockerCheck --> Base["2a: 베이스 이미지 문제<br>:latest 태그, 풀 OS 이미지"]
-    DockerCheck --> Priv["2b: 권한 문제<br>root로 실행, USER 지시자 없음"]
-    DockerCheck --> BuildSecrets["2c: 빌드 시 시크릿<br>ARG PASSWORD, COPY .env"]
-    DockerCheck --> BestPractice["2d: 모범 사례<br>curl|sh, ADD http, EXPOSE 22"]
-    DockerCheck --> MultiStage["2e: 멀티스테이지 빌드 확인"]
-
-    Base --> ComposeCheck
-    Priv --> ComposeCheck
-    BuildSecrets --> ComposeCheck
-    BestPractice --> ComposeCheck
-    MultiStage --> ComposeCheck
-
-    ComposeCheck["Step 3: Docker Compose 분석<br>privileged, host 네트워크, docker.sock"]
-    ComposeCheck --> K8sCheck
-
-    K8sCheck["Step 4: Kubernetes 매니페스트 분석"]
-    K8sCheck --> PodSec["4a: Pod 보안<br>privileged, runAsRoot, capabilities"]
-    K8sCheck --> Resources["4b: 리소스 제한<br>cpu/memory limits 누락"]
-    K8sCheck --> Network["4c: 네트워크 정책<br>NetworkPolicy 누락"]
-    K8sCheck --> K8sSecrets["4d: 시크릿 관리<br>매니페스트 내 평문 시크릿"]
-    K8sCheck --> ImageSec["4e: 이미지 보안<br>:latest, imagePullPolicy"]
-
-    PodSec --> Vercel
-    Resources --> Vercel
-    Network --> Vercel
-    K8sSecrets --> Vercel
-    ImageSec --> Vercel
-
-    Vercel["Step 5: Vercel 전용 (감지 시)<br>headers, rewrites, functions"]
-    Vercel --> Format["CTR-{NNN} 형식으로 포맷"]
-    Format --> End([끝])
-```
+Dockerfile/K8s가 감지된 경우에만 실행. 베이스 이미지, 권한, 빌드 시크릿, 리소스 제한 등 검사.
 
 ---
 
-## Step 3: 결과 병합
+## Step 5: 결과 병합
 
-모든 서브에이전트가 반환된 후, 오케스트레이터 스킬이:
+### FULL_SCAN 모드
 
 1. **중복 제거**: 같은 `file:line`을 참조하는 발견 사항 통합
-   (예: secrets-scanner와 code-pattern-scanner가 같은 하드코딩 키를 발견한 경우)
-2. **순차 번호 부여**: 에이전트별 접두사를 1, 2, 3...으로 대체
+2. **순차 번호 부여**: 1, 2, 3...
 3. **심각도 순 정렬**: Critical > High > Medium > Low > Informational
-4. **심각도별 합계** 계산
+4. **합계** 계산
 
-## Step 4: 리포트 생성
+### INCREMENTAL 모드
+
+```mermaid
+flowchart TD
+    Start([시작]) --> ReadOld["기존 리포트에서<br>발견 사항 파싱"]
+    ReadOld --> GetChanged["변경된 파일 + 관련 파일 목록"]
+    GetChanged --> Remove["변경 파일과 관련된<br>기존 발견 사항 제거"]
+    Remove --> AddNew["새 에이전트 결과<br>추가"]
+    AddNew --> Dedup["중복 제거"]
+    Dedup --> Renumber["순차 번호 재부여"]
+    Renumber --> Resort["심각도 순 재정렬"]
+    Resort --> Recount["합계 재계산"]
+    Recount --> End([끝])
+```
+
+변경되지 않은 파일의 발견 사항은 그대로 유지된다.
+
+## Step 6: 리포트 생성
+
+**단일 파일**: `./security-report/codeinspector.md` (덮어쓰기)
 
 ```mermaid
 flowchart TD
     Start([병합된 발견 사항]) --> MkDir["mkdir -p ./security-report"]
-    MkDir --> Timestamp["date +%Y-%m-%d-%H%M%S"]
-    Timestamp --> ReadLang["config에서 language 읽기"]
+    MkDir --> GetTime["현재 시간, 커밋 해시 획득"]
+    GetTime --> ReadLang["config에서 language 읽기"]
+    ReadLang --> Translate["SKILL.md 내 i18n 테이블 참조"]
+    Translate --> Write["codeinspector.md 작성"]
 
-    ReadLang --> Translate["SKILL.md 내 i18n 테이블<br>참조"]
-    Translate --> Write["리포트 파일 작성:<br>codeinspector-{timestamp}.md"]
+    Write --> Header["헤더: 마지막 업데이트,<br>기준 커밋, 분석 모드"]
+    Write --> Summary["요약: 심각도 카운트"]
+    Write --> QuickFix["빠른 수정 목록:<br>파일:줄번호 + 설명 테이블"]
+    Write --> Details["상세 발견 사항:<br>증거 코드 + 개선 코드"]
+    Write --> Coverage["분석 범위 표"]
+    Write --> Recs["권장 사항"]
 
-    Write --> Structure["리포트 구조"]
-    Structure --> S1["# 제목 (번역됨)"]
-    Structure --> S2["## 요약<br>심각도 카운트 + 설명"]
-    Structure --> S3["## 발견 사항 요약<br>표: 심각도, 분류, 위치"]
-    Structure --> S4["## 상세 발견 사항<br>각 항목의 증거 + 개선 방안"]
-    Structure --> S5["## 분석 범위<br>표: 검사 항목, 스캔 파일 수"]
-    Structure --> S6["## 권장 사항<br>우선순위 상위 3-5개"]
+    Header --> Redact["마스킹 적용"]
+    Summary --> Redact
+    QuickFix --> Redact
+    Details --> Redact
+    Coverage --> Redact
+    Recs --> Redact
 
-    S1 --> Redact["모든 민감값에<br>마스킹 규칙 적용"]
-    S2 --> Redact
-    S3 --> Redact
-    S4 --> Redact
-    S5 --> Redact
-    S6 --> Redact
-
-    Redact --> Save["./security-report/에 저장"]
+    Redact --> Save["./security-report/codeinspector.md"]
     Save --> End([끝])
 ```
 
-### i18n 번역
+### 리포트 헤더 예시
 
-SKILL.md 파일에 `en`, `ko`, `ja` 컬럼이 있는 번역 테이블이 포함되어 있다.
-모든 섹션 헤더와 라벨이 이 테이블에서 조회된다. 예시:
+```markdown
+# 코드 보안 점검 리포트
 
-| en | ko | ja |
+**마지막 업데이트**: 2026-03-01 23:15:00
+**프로젝트**: my-project
+**기술 스택**: Node.js 20, Next.js 14, PostgreSQL
+**기준 커밋**: `a1b2c3d` — feat: add user API (2026-03-01)
+**분석 모드**: 증분 검사 (이전: `d4e5f6g` → 현재: `a1b2c3d`)
+**VulChk Version**: 0.1.0
+```
+
+### 빠른 수정 목록
+
+리포트 상단에 위치하여 개발자가 바로 코드를 찾아갈 수 있도록 한다:
+
+```markdown
+## 빠른 수정 목록
+
+| # | 심각도 | 위치 | 설명 |
+|---|--------|------|------|
+| 1 | Critical | `src/api/users.js:42` | SQL injection — 문자열 결합 |
+| 2 | Critical | `package.json:8` | express 4.17.1 — CVE-2024-xxxxx |
+| 3 | High | `.gitignore` | .env 항목 누락 |
+```
+
+### 위치 형식 규칙
+
+모든 발견 사항에 정확한 위치를 포함하여 빠른 코드 탐색을 지원한다:
+
+| 발견 사항 유형 | 위치 형식 | 예시 |
 |---|---|---|
-| Executive Summary | 요약 | エグゼクティブサマリー |
-| Findings Summary | 발견 사항 요약 | 検出事項サマリー |
-| Severity | 심각도 | 深刻度 |
+| 의존성 CVE | `매니페스트:줄번호` | `package.json:8` |
+| OWASP 코드 패턴 | `소스파일:줄번호` | `src/api/users.js:42` |
+| 소스 코드 시크릿 | `소스파일:줄번호` | `src/config.js:15` |
+| .gitignore 누락 | `.gitignore` (줄번호 없음) | `.gitignore` |
+| Git 이력 유출 | `커밋해시:파일경로` | `a1b2c3d:src/config.js` |
+| 컨테이너 설정 | `설정파일:줄번호` | `Dockerfile:3` |
 
-보안 용어 (CVE, XSS, CSRF, OWASP, CWE, SQLi, SSRF, IDOR)는 **절대 번역하지
-않으며** 모든 언어에서 영어로 유지된다.
+### i18n
 
-### 심각도 라벨
+SKILL.md 내 번역 테이블에서 모든 섹션 헤더/라벨을 조회.
+보안 용어 (CVE, XSS, CSRF, OWASP, CWE, SQLi, SSRF, IDOR)는
+**절대 번역하지 않으며** 영어로 유지된다.
 
-| en | ko | ja |
-|---|---|---|
-| Critical | Critical (치명적) | Critical (致命的) |
-| High | High (높음) | High (高) |
-| Medium | Medium (중간) | Medium (中) |
-| Low | Low (낮음) | Low (低) |
-| Informational | Informational (정보) | Informational (情報) |
+## Step 7: 사용자 요약
 
-## Step 5: 사용자 요약
-
-리포트 작성 후 터미널에 간략 요약을 표시:
+리포트 작성 후 터미널에 표시:
 - 리포트 파일 경로
+- 분석 모드 (전수/증분)
+- 기준 커밋
 - 심각도별 카운트
-- 우선순위 상위 3개 항목
+- 우선순위 상위 3개 항목 (`파일:줄번호` 포함)
+- (증분 시) 새로 추가/해결된 발견 사항 수, 재분석 파일 수
 - `/vulchk.hacksimulator`로 런타임 테스트 권고
 
 ## 에러 처리
 
-- 서브에이전트가 실패하거나 타임아웃되면, **분석 범위** 표에서
-  `SKIPPED`로 표기하고 다른 에이전트의 결과로 리포트를 계속 생성한다
-- 분석 계획은 표시되지만 사용자 승인이 **필요 없다**
-  (코드 점검은 비파괴적)
-- 취약점이 발견되지 않더라도 어떤 검사를 수행했고 결과가
-  깨끗했다는 내용의 리포트를 생성한다
+- 서브에이전트가 실패하면 **분석 범위** 표에서 `SKIPPED`로 표기
+- 취약점이 없어도 리포트 생성 (클린 결과 기록)
+- 분석 계획은 사용자 승인 **불필요** (비파괴적)

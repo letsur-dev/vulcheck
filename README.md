@@ -34,7 +34,7 @@ vulchk init
 
 Node.js, React/Next.js (Vercel 포함), FastAPI 프로젝트에 대해 특화된 분석을 제공합니다. 그 외 스택은 범용 분석을 수행합니다.
 
-리포트 저장 경로: `./security-report/codeinspector-{timestamp}.md`
+리포트 저장 경로: `./security-report/codeinspector.md` (단일 파일, 실행 시마다 업데이트)
 
 ### `/vulchk.hacksimulator`
 
@@ -84,10 +84,17 @@ vulchk --help            # 도움말 표시
 
 리포트는 `./security-report/` 디렉토리에 Markdown 파일로 생성됩니다:
 
-- `codeinspector-{YYYY-MM-DD-HHmmss}.md` — 코드 점검 결과
+- `codeinspector.md` — 코드 점검 결과 (단일 파일, 증분 업데이트)
 - `hacksimulator-{YYYY-MM-DD-HHmmss}.md` — 모의 침투 테스트 결과
 
-리포트 포함 내용:
+### Code Inspector 리포트 특징:
+- **단일 파일** — 실행할 때마다 같은 파일이 업데이트됨
+- **커밋 기반 추적** — 어떤 커밋 기준으로 분석했는지 기록
+- **증분 분석** — 두 번째 실행부터는 변경된 파일만 재분석 (관련 파일 포함)
+- **빠른 수정 목록** — 파일 경로와 줄 번호가 포함된 요약 테이블
+- **클린 커밋 필수** — 커밋되지 않은 변경사항이 있으면 먼저 커밋 요구
+
+### 공통:
 - 심각도별 카운트가 포함된 요약
 - 증거, 참조, 개선 방안이 포함된 상세 발견 사항
 - 보안 용어 (CVE, XSS, CSRF 등)는 리포트 언어와 관계없이 영어로 유지
