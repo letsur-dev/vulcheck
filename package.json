@@ -1,0 +1,36 @@
+{
+  "name": "vulchk",
+  "version": "0.1.0",
+  "description": "Security analysis toolkit for Claude Code - code inspection and penetration testing via slash commands",
+  "type": "module",
+  "bin": {
+    "vulchk": "./bin/vulchk.js"
+  },
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "security",
+    "vulnerability",
+    "claude-code",
+    "penetration-testing",
+    "code-analysis",
+    "owasp",
+    "cve"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^13.1.0",
+    "enquirer": "^2.4.1",
+    "chalk": "^5.4.1",
+    "fs-extra": "^11.3.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

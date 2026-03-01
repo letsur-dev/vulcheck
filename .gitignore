@@ -1,0 +1,6 @@
+node_modules/
+security-report/
+.vulchk/
+.env
+.env.local
+*.log
