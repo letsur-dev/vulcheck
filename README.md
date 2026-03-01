@@ -4,9 +4,32 @@
 
 ## 설치
 
-```bash
-npm install -g vulchk
+VulChk는 GitHub Packages를 통해 배포됩니다. 설치 전 레지스트리 인증을 설정해야 합니다.
+
+### 1. GitHub Packages 레지스트리 설정
+
+`~/.npmrc` 파일에 아래 내용을 추가합니다:
+
 ```
+@letsur-dev:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+```
+
+> `YOUR_GITHUB_TOKEN`을 `read:packages` 권한이 있는 [GitHub Personal Access Token](https://github.com/settings/tokens)으로 교체하세요.
+
+### 2. 설치
+
+```bash
+npm install -g @letsur-dev/vulchk
+```
+
+### 업데이트
+
+```bash
+npm install -g @letsur-dev/vulchk
+```
+
+최신 버전이 배포된 경우 `vulchk` 실행 시 자동으로 업데이트 안내가 표시됩니다.
 
 ## 빠른 시작
 
