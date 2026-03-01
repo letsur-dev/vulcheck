@@ -7,6 +7,12 @@
     "vulchk": "./bin/vulchk.js"
   },
   "main": "src/index.js",
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"
@@ -18,9 +24,16 @@
     "penetration-testing",
     "code-analysis",
     "owasp",
-    "cve"
+    "cve",
+    "static-analysis",
+    "pentest"
   ],
+  "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
   "dependencies": {
     "commander": "^13.1.0",
     "enquirer": "^2.4.1",

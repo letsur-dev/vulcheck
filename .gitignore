@@ -1,6 +1,11 @@
 node_modules/
 security-report/
 .vulchk/
+.test-workspace/
 .env
 .env.local
+.env.*.local
 *.log
+dist/
+coverage/
+*.tgz
