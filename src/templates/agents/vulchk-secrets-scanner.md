@@ -28,6 +28,8 @@ Read `.gitignore` (if it exists) and verify it includes entries for:
 *.pfx
 credentials.json
 service-account*.json
+*firebase-adminsdk*.json
+supabase/.env
 *secret*
 .aws/
 .ssh/
@@ -49,6 +51,7 @@ Use Glob to search for files that should NOT be in the repository:
 *.p12
 credentials.json
 service-account*.json
+*firebase-adminsdk*.json
 ```
 
 If any of these exist AND are not in .gitignore, report as HIGH severity.
@@ -95,6 +98,28 @@ auth\s*[:=]\s*["'][^"']{8,}["']
 (mysql|postgres|mongodb|redis):\/\/[^@\s]+@
 DATABASE_URL\s*=\s*["']?[a-z]+:\/\/
 ```
+
+**BaaS / Cloud Platform Keys**:
+
+```
+# Supabase — service_role JWT (RLS bypass, Critical)
+SUPABASE_SERVICE_ROLE_KEY\s*=\s*["']?eyJ[A-Za-z0-9._-]+
+
+# Supabase — JWT signing secret (token forgery, Critical)
+SUPABASE_JWT_SECRET\s*=\s*["'][^"']{8,}["']
+
+# Firebase Admin SDK — service account private key (Critical)
+"private_key":\s*"-----BEGIN (RSA )?PRIVATE KEY
+
+# Firebase Admin SDK — service account email (High)
+"client_email":\s*"[^"]*@[^"]*\.iam\.gserviceaccount\.com
+```
+
+Severity for BaaS patterns:
+- `SUPABASE_SERVICE_ROLE_KEY` → **Critical** (full RLS bypass)
+- `SUPABASE_JWT_SECRET` → **Critical** (JWT forgery)
+- Firebase admin SDK private key → **Critical**
+- Firebase admin SDK client_email → **High** (combined key exposure risk)
 
 ### Step 4: Check Frontend Exposure
 

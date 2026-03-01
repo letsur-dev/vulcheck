@@ -434,6 +434,18 @@ flowchart TD
 .gitignore 검증 → 비밀 파일 존재 확인 → 소스 코드 시크릿 Grep → 프론트엔드 노출 검사.
 테스트 파일의 발견 사항은 LOW로 하향 처리.
 
+### v2.1 BaaS / Cloud Platform Keys 패턴 추가
+
+| 패턴 | 심각도 | 이유 |
+|------|--------|------|
+| `SUPABASE_SERVICE_ROLE_KEY` | **Critical** | RLS 전체 우회 가능 |
+| `SUPABASE_JWT_SECRET` | **Critical** | JWT 위조 가능 |
+| Firebase Admin SDK `private_key` | **Critical** | Firebase 서비스 전체 제어 |
+| Firebase Admin SDK `client_email` | **High** | private_key 함께 노출 시 완전한 admin SDK 접근 |
+
+.gitignore 검사 항목에 `*firebase-adminsdk*.json`, `supabase/.env` 추가.
+파일 존재 검사 항목에 `*firebase-adminsdk*.json` 추가.
+
 ## 서브에이전트 4: Git History Auditor
 
 **파일**: `vulchk-git-history-auditor.md` | **접두사**: `GIT-{NNN}` | **모델**: haiku | **도구**: Bash (git log -p -S)

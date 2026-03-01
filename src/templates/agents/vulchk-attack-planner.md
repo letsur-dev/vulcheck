@@ -71,6 +71,16 @@ Extract and analyze:
 curl -s --max-time 5 "{target_url}/robots.txt" 2>/dev/null | head -50
 curl -s --max-time 5 "{target_url}/.well-known/security.txt" 2>/dev/null | head -20
 curl -s --max-time 5 "{target_url}/sitemap.xml" 2>/dev/null | head -50
+
+# Supabase detection
+curl -sI --max-time 5 "{target_url}/rest/v1/" 2>/dev/null | head -5
+curl -sI --max-time 5 "{target_url}/auth/v1/settings" 2>/dev/null | head -3
+
+# Elasticsearch exposure
+curl -s --max-time 5 "{target_url}/_cat/health" 2>/dev/null | head -3
+
+# Firebase config in page source
+curl -s --max-time 10 "{target_url}" 2>/dev/null | grep -i "firebaseConfig\|initializeApp" | head -3
 ```
 
 Use WebFetch on the main page to identify:
@@ -366,9 +376,17 @@ Write to `{workspace}/site-analysis.md`:
 {list all discovered API endpoints}
 
 ## Database Attack Vectors
-- **Query Patterns**: {detected patterns (parameterized, raw string, ORM)}
+- **DB Type**: {SQL: PostgreSQL | MySQL | MSSQL | SQLite | Oracle} /
+              {NoSQL: MongoDB | Redis | Elasticsearch | Firebase | DynamoDB} /
+              {BaaS: Supabase | Firebase}
+- **Query Patterns**: {parameterized | raw string | ORM | ODM | PostgREST filter}
 - **Injection Points**: {endpoints with user input in queries}
-- **Database Type**: {detected DB type}
+- **NoSQL Operator Injection**: {endpoints accepting JSON body — $ne/$regex/$where risk}
+- **Supabase** (if detected):
+  - anon key exposed in source: {yes | no}
+  - service_role key exposed: {yes | no} — Critical if yes
+  - RLS status: {enabled | partially | disabled | unknown}
+  - Accessible endpoints: /rest/v1/, /auth/v1/, /storage/v1/
 
 ## Authentication Mechanisms
 - **Type**: {cookie-based | JWT | OAuth | session | API key}

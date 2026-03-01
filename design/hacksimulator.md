@@ -320,9 +320,28 @@ flowchart TD
 
 | 파일 | 내용 |
 |------|------|
-| `site-analysis.md` | 기술 스택, CSS 셀렉터, API 구조, DB 공격 벡터, 인증 메커니즘, CORS/보안 헤더 |
+| `site-analysis.md` | 기술 스택, CSS 셀렉터, API 구조, DB 공격 벡터 (SQL/NoSQL/BaaS), 인증 메커니즘, CORS/보안 헤더 |
 | `attack-scenarios.md` | 구조화된 공격 시나리오 (AS-{NNN}): 벡터, 단계, 타겟, 파라미터, 기술, 우선순위 |
 | `attack-plan.md` | 강도별 공격 계획 (기존 형식) |
+
+### Step 1b 핑거프린팅 확장 (v2.1)
+
+기술 핑거프린팅에 다음 탐지가 추가되었다:
+- Supabase: `/rest/v1/`, `/auth/v1/settings` 응답 확인
+- Elasticsearch: `/_cat/health` 노출 확인
+- Firebase: 페이지 소스에서 `firebaseConfig`/`initializeApp` 탐지
+
+### DB 공격 벡터 섹션 (site-analysis.md)
+
+```
+## Database Attack Vectors
+- DB Type: {SQL: PostgreSQL | MySQL | MSSQL | SQLite | Oracle} /
+           {NoSQL: MongoDB | Redis | Elasticsearch | Firebase | DynamoDB} /
+           {BaaS: Supabase | Firebase}
+- Query Patterns: {parameterized | raw string | ORM | ODM | PostgREST filter}
+- NoSQL Operator Injection: {endpoints accepting JSON body — $ne/$regex/$where risk}
+- Supabase (if detected): anon key, service_role key 노출 여부, RLS 상태
+```
 
 ### 알고리즘
 
@@ -442,7 +461,7 @@ flowchart TD
 | 단계 번호 | 단계 이름 | 테스트 내용 | Pass |
 |----------|---------|-----------|------|
 | 1 | passive | 보안 헤더, 쿠키, CORS, 정보 노출, TLS, 에러 페이지 | Pass 1 (HTTP 병렬) |
-| 2 | injection | XSS, SQLi, CSRF, SSTI, 커맨드 인젝션 | Pass 1 (HTTP 병렬) |
+| 2 | injection | XSS, SQLi(MySQL/MSSQL/PostgreSQL/SQLite 다중 DB), CSRF, SSTI, 커맨드 인젝션, **NoSQL 인젝션**, **Supabase 검사** | Pass 1 (HTTP 병렬) |
 | 3 | auth | 인증 테스트, JWT 분석, 세션 관리 | Pass 1 (HTTP 병렬) |
 | 4 | app-logic | CSRF 검증, HTTP 메서드, 매스 할당, 파일 업로드, SSRF | Pass 1 (HTTP 병렬) |
 | 5 | business-logic | IDOR, 가격 변조, 워크플로 우회, 권한 상승 | Pass 1 (HTTP 병렬) |
@@ -523,6 +542,20 @@ attack-executor는 **모든 HTTP 응답**에서 다음 토큰을 명시적으로
 | DoS 금지 | 스레드 고갈이나 리소스 플러딩 금지 |
 | Aggressive 경고 강화 | 실 데이터 삭제/서비스 중단 가능성 경고, 스테이징 환경 권장 |
 | 워크스페이스 영속 | 테스트 후 워크스페이스 유지 (증분 모드용) |
+
+### v2.1 신규 탐지 단계
+
+| 단계 | 내용 |
+|------|------|
+| **3b 확장** (Multi-DB SQLi) | MySQL `SLEEP(5)`, MSSQL `WAITFOR DELAY`, PostgreSQL `pg_sleep(5)`, SQLite `RANDOMBLOB` 순차 시도. elapsed ≥ 5초이면 해당 DB 종류의 time-based SQLi로 보고 |
+| **3l** (NoSQL 인젝션) | MongoDB `$ne`/`$regex` operator injection으로 인증 우회 탐지. Elasticsearch `/_cat/indices` 노출 확인. Firebase `.json` 엔드포인트 200 여부 확인 |
+| **3m** (Supabase 검사) | `SUPABASE_DETECTED` 플래그로 PostgREST/Supabase 환경 탐지. anon key·service_role key 소스 노출 확인. anon key로 RLS 미적용 테이블 HTTP 200 탐지. 스토리지 공개 버킷 열거 |
+
+**심각도 기준 (3m)**:
+- `service_role` key 소스 노출 → Critical (RLS 전체 우회)
+- anon key로 `/rest/v1/{table}` HTTP 200 → High (RLS 미설정)
+- 스토리지 공개 버킷 → Medium~High
+- anon key 소스 노출 (의도 불명확) → Low~Medium
 
 ---
 

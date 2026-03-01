@@ -376,5 +376,31 @@ describe('template validation', () => {
       expect(content).not.toContain('/tmp/vulchk-session');
       expect(content).toContain('VULCHK_WORKSPACE');
     });
+
+    it('secrets scanner covers Supabase service_role and JWT patterns', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-secrets-scanner.md'), 'utf-8');
+      expect(content).toContain('SUPABASE_SERVICE_ROLE_KEY');
+      expect(content).toContain('SUPABASE_JWT_SECRET');
+    });
+
+    it('attack executor covers NoSQL injection', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      expect(content).toContain('$ne');
+      expect(content).toContain('NoSQL');
+    });
+
+    it('attack executor covers Supabase-specific checks', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      expect(content).toContain('service_role');
+      expect(content).toContain('/rest/v1/');
+      expect(content).toContain('SUPABASE_DETECTED');
+    });
+
+    it('attack executor covers multi-DB time-based SQLi', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+      expect(content).toContain('SLEEP(5)');
+      expect(content).toContain('WAITFOR DELAY');
+      expect(content).toContain('RANDOMBLOB');
+    });
   });
 });
