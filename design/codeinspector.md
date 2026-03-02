@@ -117,15 +117,22 @@ sequenceDiagram
 
     rect rgb(255, 240, 245)
         Note over Skill: Step 5: 결과 검증
-        Skill->>Skill: 에이전트 결과 검증 (실패 시 재실행)
+        Skill->>Skill: 에이전트 결과 검증 (실패·환각·도구 미사용 감지)
         Skill->>Skill: 포맷 검증 (필수 필드 확인)
     end
 
     rect rgb(255, 240, 245)
         Note over Skill: Step 5b: 적대적 검증 (Adversarial Verification)
         Skill->>Skill: Sonnet 모델로 각 취약점의 실제 공격 가능성 검토
+        Skill->>Skill: CVE Feature Usage Validation (DEP- High+ 대상)
         Skill->>Skill: 실무적 위험도(Practical Risk) + Confidence 판정 및 오탐 제거
         Skill->>Skill: 배포 환경(deployment)별 심각도 조정 적용
+        Skill->>Skill: Deployment Skip Enforcement (N/A 항목 강제 삭제)
+    end
+
+    rect rgb(255, 248, 240)
+        Note over Skill: Step 5c: 발견 사항 합계 검증
+        Skill->>Skill: FINAL_COUNT 계산 → 요약·Quick Fix·상세 일치 확인
     end
 
     rect rgb(240, 255, 240)
@@ -160,9 +167,16 @@ sequenceDiagram
 
 Step 5b(적대적 검증)에서 배포 환경별 심각도 조정 테이블을 적용한다:
 - Docker 가변 태그 → 모든 환경에서 **Informational** (개발 운영 이슈)
-- root 권한 실행 → Vercel에서 스킵, K8s/Docker에서 **High** (ownership 검증 포함)
-- 리소스 제한 미설정 → Vercel에서 스킵, K8s에서 **Medium**
+- root 권한 실행 → Vercel에서 **강제 삭제**, K8s/Docker에서 **High** (ownership 검증 포함)
+- 리소스 제한 미설정 → Vercel에서 **강제 삭제**, K8s에서 **Medium**
+- .dockerignore 미존재 → Vercel에서 **강제 삭제**
 - 로깅 부족 → 모든 환경에서 **Informational**
+
+**N/A(skip) = 강제 삭제**: Vercel 배포 시 Dockerfile/Docker 관련 발견 사항은 Low로
+하향하는 것이 아니라 리포트에서 **완전히 제거**한다.
+
+Step 5b 이후 **Deployment Skip Enforcement** 단계에서 최종 확인을 수행하여
+남아있는 N/A 항목을 강제 삭제하고, 삭제 건수를 로깅한다.
 
 ### Step 1: Git 상태 확인 + 모드 결정
 
@@ -387,6 +401,15 @@ POST https://api.osv.dev/v1/query
 **모델**: sonnet
 **주요 도구**: Grep (정규식 패턴 매칭) + Read (Taint Analysis)
 
+### Evidence-Based Analysis Protocol (v2.5)
+
+환각(hallucination) 방지를 위해 엄격한 증거 기반 프로토콜을 적용한다:
+
+1. **Step 0: 파일 인벤토리 구축** — 분석 전 Glob으로 모든 소스 파일을 탐색하여 VERIFIED_FILES 목록 구성
+2. **증거 필수 규칙** — 발견 사항의 모든 파일 경로는 VERIFIED_FILES에 포함되어야 함
+3. **Evidence 복사 규칙** — 코드 스니펫은 반드시 Read 도구 출력에서 직접 복사 (재구성 금지)
+4. **셀프체크** — 출력 최종화 전 각 발견 사항의 파일 경로가 도구 호출로 검증되었는지 확인, 미검증 시 해당 발견 사항 삭제
+
 ### Chain of Thought (4단계 추론 체인)
 
 code-pattern-scanner는 패턴 매칭 후 각 발견 사항에 대해 다음 4단계 추론을 명시적으로 수행한다:
@@ -566,6 +589,43 @@ flowchart TD
 ```
 
 변경되지 않은 파일의 발견 사항은 그대로 유지된다.
+
+### 에이전트 결과 검증 (강화, v2.5)
+
+에이전트 결과 수집 후 3가지 품질 검사를 수행한다:
+
+1. **실패/빈 결과**: 100자 미만 출력 → 동일 파라미터로 재실행
+2. **환각 감지**: Step 2에서 발견되지 않은 파일을 참조하는 발견 사항 → Glob으로 검증, 존재하지 않는 파일 참조 삭제
+3. **도구 미사용 분석 감지**: 실제 파일 읽기 없이 분석한 흔적(모호한 설명, 프로젝트 구조와 모순) → "MUST use Glob and Read" 지시 추가 후 재실행
+
+### Step 5b 추가 항목: CVE Feature Usage Validation (v2.5)
+
+DEP- 발견 사항 중 Severity ≥ High인 CVE에 대해:
+1. CVE 설명에서 **취약한 기능(feature)** 식별
+2. 코드베이스에서 해당 기능 사용 여부 검색 (Glob/Grep)
+3. 미사용 시 → **Low** + Practical Risk: **Theoretical** ("해당 기능 미사용, 방어 심층을 위해 업그레이드 권장")
+4. 사용 시 → 원래 심각도 유지
+
+대표적 검증 패턴:
+| CVE 패턴 | 기능 | 검증 방법 |
+|----------|------|----------|
+| Next.js 미들웨어 우회 | Middleware | `middleware.{ts,js}` 존재 여부 |
+| Express body parser 오버플로 | Body parsing | `express.json()` 또는 `bodyParser` 사용 여부 |
+| JWT 서명 우회 | JWT | `jwt.verify` 또는 `jsonwebtoken` import 여부 |
+
+### Step 5c: 발견 사항 합계 검증 (v2.5)
+
+리포트 생성 전 필수 합계 검사:
+1. 모든 필터링 후 총 발견 사항 수 → FINAL_COUNT
+2. 요약 심각도 합계, Quick Fix List 행 수, 상세 발견 사항 수가 모두 FINAL_COUNT와 일치해야 함
+3. 불일치 시 Quick Fix List + 상세 발견 사항을 기준으로 보정
+
+### Duplicate-Package CVE Fix Prompt 규칙 (v2.5)
+
+동일 패키지에 여러 CVE가 있는 경우:
+- 각 CVE는 별도 발견 사항으로 고유 심각도와 참조를 가짐
+- 각 발견 사항에 **반드시 개별 Fix Prompt**가 포함되어야 함 (동일 내용이라도)
+- 선택적으로 "이 업그레이드는 {DEP-NNN}도 함께 해결합니다 (동일 패키지)" 메모 추가 가능
 
 ## Step 6: 리포트 생성
 

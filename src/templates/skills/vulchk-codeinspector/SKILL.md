@@ -295,9 +295,22 @@ Wait for all sub-agents to complete. Collect their outputs.
 
 ### Agent Result Validation
 
-After collecting results, check each agent's response:
-- If an agent returned empty/minimal output (< 100 characters) or shows signs of failure, **re-launch that specific agent once** with the same parameters.
-- Log the retry in the Analysis Coverage section.
+After collecting results, check each agent's response for quality:
+
+1. **Empty/Failed**: Output < 100 characters or signs of failure →
+   re-launch that agent once with same parameters.
+
+2. **Hallucination detection**: If findings reference files NOT found during
+   Step 2, verify each file path with Glob. Remove findings referencing
+   non-existent files.
+
+3. **Tool-free analysis detection**: If output suggests analysis without
+   actual file reading (vague descriptions, generic findings, contradictions
+   with project structure) → re-launch with added instruction:
+   "IMPORTANT: You MUST use Glob and Read tools. Do not report findings
+   based on assumptions."
+
+4. Log all retries and removals in Analysis Coverage section.
 
 ### Result Format Validation
 
@@ -324,11 +337,32 @@ For each finding (or groups of findings):
 2.  **Evaluate exploitability**: Is there a real-world path for an attacker?
 3.  **Check for mitigations**: Are there undocumented sanitizers or infra-level protections (e.g., WAF, internal-only access)?
 4.  **Cross-reference agents**: e.g., a SEC finding of a hardcoded key gains urgency if GIT shows the same key was committed historically and never rotated.
-5.  **Assign Confidence**:
+5.  **CVE Feature Usage Validation** (DEP- findings with Severity ≥ High):
+    For each high-severity dependency CVE, check whether the project actually uses
+    the specific vulnerable feature:
+
+    a. Read the CVE description to identify the **affected feature**
+    b. Search the codebase for evidence of that feature being used:
+       - Glob/Grep for relevant files, imports, or function calls
+    c. If the vulnerable feature is NOT used:
+       - Downgrade to **Low**, set Practical Risk to **Theoretical**
+       - Note: "The vulnerable feature ({feature}) is not used in this project.
+         The dependency is affected but not exploitable in this context.
+         Upgrade still recommended for defense-in-depth."
+    d. If the vulnerable feature IS used, keep the original severity.
+
+    Common CVE-to-Feature checks:
+    | CVE Pattern | Feature | Verification |
+    |-------------|---------|-------------|
+    | Next.js middleware bypass | Middleware | Glob: `middleware.{ts,js}` in project root |
+    | Express body parser overflow | Body parsing | Grep: `express.json()` or `bodyParser` |
+    | JWT signature bypass | JWT | Grep: `jwt.verify` or `jsonwebtoken` |
+    | XML/YAML parsing RCE | XML/YAML parse | Grep: relevant parse function |
+6.  **Assign Confidence**:
     *   **90-100%**: Confirmed exploitable.
     *   **60-89%**: Theoretically possible but difficult to exploit.
     *   **<60%**: Likely a False Positive.
-6.  **Re-classify**:
+7.  **Re-classify**:
     *   If <60% confidence → **Remove** from report.
     *   If 60-89% confidence → Keep but mark **Practical Risk: Low/Theoretical**.
     *   Update the `Practical Risk` explanation based on this verification.
@@ -345,7 +379,27 @@ After adversarial verification, apply these adjustments based on the `deployment
 | Missing `.dockerignore` | N/A (skip) | Keep original severity | Keep original severity |
 | Logging insufficiency (CWE-778) | **Informational** | **Informational** | **Informational** |
 
-**N/A (skip)** means the finding should be removed entirely — it is irrelevant for that deployment environment.
+**MANDATORY — N/A (skip) = DELETE**: When the table says "N/A (skip)", you MUST
+completely remove the finding from the report. Do NOT downgrade to Low or Informational.
+Do NOT keep with a note. DELETE IT.
+
+### Deployment Skip Enforcement (Mandatory Final Check)
+
+After all severity adjustments, perform a mandatory sweep:
+1. If `deployment` is `vercel`: DELETE any remaining findings about Dockerfile USER
+   directives, Docker resource limits, .dockerignore, or mutable Docker base image tags.
+2. Log: "Removed {N} findings irrelevant to {deployment} deployment"
+
+### Step 5c: Finding Count Validation
+
+Before generating the report, perform a mandatory count check:
+
+1. Count total findings after all filtering → FINAL_COUNT
+2. When generating the report, ensure these ALL match FINAL_COUNT:
+   - Executive Summary severity total
+   - Quick Fix List table row count
+   - Detailed Findings section count
+3. If mismatch → reconcile. Quick Fix List + Detailed Findings = source of truth.
 
 ## Step 6: Generate Report
 
@@ -390,6 +444,14 @@ Translate all section headers using the language reference above.
 - **Required**: All findings with Severity >= Medium MUST include a Fix Prompt
 - **Optional**: Low and Informational findings MAY include a Fix Prompt if the fix is straightforward
 - **Format**: Each Fix Prompt must include Issue, Severity, Location, Description, Remediation code, and Context (surrounding code snippet)
+
+### Duplicate-Package CVE Handling
+
+When multiple CVEs affect the same package:
+- Each CVE gets its own finding with its own severity and references
+- Each finding MUST have its own Fix Prompt (rule applies per-finding, not per-package)
+- Fix Prompts may be identical — this is expected. Each finding must be independently actionable.
+- Optionally note: "This upgrade also resolves {DEP-NNN} (same package)."
 
 ### Reference Hyperlink Rules
 

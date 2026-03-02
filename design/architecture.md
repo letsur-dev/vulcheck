@@ -228,18 +228,26 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 | 에이전트 | 접두사 | 호출 주체 | 모델 | 주요 도구 | 핵심 기능 |
 |---------|--------|---------|------|---------|----------|
 | `vulchk-dependency-auditor` | DEP | codeinspector | sonnet | Bash (curl → OSV API) | Lock 파일 우선 읽기, 전이 의존성 포함 |
-| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | 4단계 CoT 추론 + Taint Analysis (Zod/Pydantic 인식), NoSQL·Prototype Pollution·Mass Assignment 탐지 |
-| `vulchk-secrets-scanner` | SEC | codeinspector | sonnet | Grep + Glob | Glob/Grep 전용 파일 탐색, .gitignore 검증, 시크릿 탐지 |
+| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | Evidence-Based Protocol (Step 0 파일 인벤토리), 4단계 CoT 추론 + Taint Analysis (Zod/Pydantic 인식), NoSQL·Prototype Pollution·Mass Assignment 탐지 |
+| `vulchk-secrets-scanner` | SEC | codeinspector | sonnet | Grep + Glob | Glob/Grep 전용 파일 탐색, .gitignore 검증, 시크릿 탐지, DB URL 패턴 탐지, .temp/ 디렉토리 스캔 |
 | `vulchk-git-history-auditor` | GIT | codeinspector | sonnet | Bash (git log -S) | 순차 명령 실행, 커밋 이력 시크릿 탐지 |
-| `vulchk-container-security-analyzer` | CTR | codeinspector | sonnet | Read + Grep | 컨테이너 + CI/CD 파이프라인 보안 |
+| `vulchk-container-security-analyzer` | CTR | codeinspector | sonnet | Read + Grep | 도구 사용 필수 프로토콜, 컨테이너 + CI/CD 파이프라인 보안, GH Actions SHA 핀 강화 탐지 |
 
-### 안전 메커니즘 확장 (v2.4)
+### 안전 메커니즘 확장 (v2.5)
 
 | 메커니즘 | 설명 |
 |---------|------|
 | **오케스트레이터 429 핸들링** | 스킬(오케스트레이터) 수준에서 sub-agent의 429 에러를 감지하고 전역적으로 cooldown(30s) 및 재시도 조율 |
 | **현대적 Sanitizer 인식** | Zod, Pydantic 등 런타임 검증 라이브러리를 강력한 Sanitizer로 인식하여 오탐(False Positive) 제거 |
 | **Aggressive 경고 강화** | 파괴적 테스트 가능성이 있는 Aggressive 모드에 대해 승인 게이트 시각적 경고 강화 |
+| **Evidence-Based Analysis Protocol** | code-pattern-scanner에 Step 0 파일 인벤토리 구축, 증거 필수 규칙, 셀프체크 적용 — 53% 환각률 문제 해결 |
+| **Tool-Based Analysis 강제** | container-security-analyzer에 Glob/Read 필수 사용 규칙 적용 — 도구 미사용 false positive 방지 |
+| **CVE Feature Usage Validation** | DEP- High+ CVE에 대해 취약 기능의 실제 사용 여부를 검증하여 미사용 시 Low/Theoretical로 하향 |
+| **DB/인프라 URL 탐지** | secrets-scanner에 PostgreSQL/MySQL/MongoDB/Redis/AMQP URL 패턴 및 .temp/ 디렉토리 스캔 추가 |
+| **GH Actions SHA 핀 강화** | 버전 태그(@v4, @v4.1, @v4.1.1)도 unpinned로 탐지 — SHA-pinned만 허용 |
+| **Deployment Skip Enforcement** | N/A(skip) 항목을 Low가 아닌 **강제 삭제** 처리, 최종 확인 스윕 수행 |
+| **Finding Count Validation** | 리포트 생성 전 요약·Quick Fix·상세 발견 사항 합계 일치 필수 검증 |
+| **Duplicate-Package Fix Prompt** | 동일 패키지 다중 CVE 시 각 발견 사항에 개별 Fix Prompt 필수 |
 | `vulchk-attack-planner` | — | hacksimulator | sonnet | Bash (curl 정찰) | 비즈니스 로직 분석, 공격 시나리오 설계 |
 | `vulchk-attack-executor-recon` | HSM | hacksimulator | sonnet | Bash (curl) | passive 정찰: 보안 헤더, CSP, 쿠키, CORS, TLS, 정보 노출 |
 | `vulchk-attack-executor-injection` | HSM | hacksimulator | sonnet | Bash (curl) | 인젝션: XSS, SQLi (multi-DB baseline-delta), SSTI, 커맨드 인젝션, NoSQL |

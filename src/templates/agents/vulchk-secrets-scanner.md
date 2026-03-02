@@ -15,7 +15,8 @@ You are a secrets exposure scanner. Find hardcoded secrets, missing .gitignore e
 
 1. Read `.gitignore`. If missing, report **HIGH**.
 2. Use Glob to check if these files exist:
-   `.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `credentials.json`, `*firebase-adminsdk*.json`, `supabase/.env`.
+   `.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `credentials.json`, `*firebase-adminsdk*.json`,
+   `supabase/.env`, `supabase/.temp/**`, `.temp/**`, `**/serviceAccountKey.json`.
 3. If a file exists BUT its pattern is missing from `.gitignore`, report **HIGH** (or **CRITICAL** if it contains real secrets).
 
 ## Step 2: Hardcoded Secrets Scan (Grep)
@@ -33,10 +34,28 @@ Exclude: `node_modules/`, `.git/`, `dist/`, `build/`, `*.test.*`, `*.spec.*`.
 - Firebase: `"private_key":\s*"-----BEGIN (RSA |EC|DSA|OPENSSH) PRIVATE KEY` (**CRITICAL**)
 - Firebase: `"client_email":\s*"[^"]*"` (**Informational** — only report if private_key is also present)
 
+### Database & Infrastructure URLs
+- PostgreSQL: `postgres(ql)?:\/\/[^\s"']+`
+- MySQL: `mysql:\/\/[^\s"']+`
+- MongoDB: `mongodb(\+srv)?:\/\/[^\s"']+`
+- Redis: `redis:\/\/[^\s"']+`
+- AMQP: `amqp:\/\/[^\s"']+`
+
+For database URLs: credentials present (user:password@) = **HIGH**, hostname only = **Medium**.
+
 ### Generic Assignments
 - `password|secret|api[_-]?key|token|auth\s*[:=]\s*["'][^"']{8,}["']`
 - `DATABASE_URL\s*=\s*["']?[a-z]+:\/\/`
 - `-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----`
+
+## Step 2b: Committed Infrastructure References
+
+Check for infrastructure reference files that should not be in version control:
+
+1. Glob: `**/.temp/**`, `**/temp/**` (excluding node_modules, .git)
+2. For matches, Read file contents — check for connection strings, project IDs, endpoint URLs
+3. Verify if covered by `.gitignore`
+4. Connection strings/credentials = **HIGH**, project identifiers/endpoints = **MEDIUM**
 
 ## Step 3: Frontend Exposure
 ...

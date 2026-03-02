@@ -513,9 +513,11 @@ describe('template validation', () => {
       expect(fm.model).toBe('sonnet');
     });
 
-    it('code-pattern-scanner includes File Existence Verification instruction', () => {
+    it('code-pattern-scanner includes Evidence-Based Analysis Protocol', () => {
       const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-code-pattern-scanner.md'), 'utf-8');
-      expect(content).toContain('File Existence Verification');
+      expect(content).toContain('Evidence-Based Analysis Protocol');
+      expect(content).toContain('VERIFIED_FILES');
+      expect(content).toContain('Evidence-Only Reporting');
     });
 
     it('SKILL.md includes Confidence field in report format', () => {
