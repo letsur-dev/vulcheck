@@ -28,22 +28,23 @@ Exclude: `node_modules/`, `.git/`, `dist/`, `build/`, `*.test.*`, `*.spec.*`.
 - OpenAI: `sk-[0-9a-zA-Z]{48}`
 - Slack: `xoxb-[0-9]{10,}-[0-9a-zA-Z]{24,}`
 - Supabase: `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` (**CRITICAL**)
-- Firebase: `"private_key":\s*"-----BEGIN` (**CRITICAL**)
+- Firebase: `"private_key":\s*"-----BEGIN (RSA |EC|DSA|OPENSSH) PRIVATE KEY` (**CRITICAL**)
+- Firebase: `"client_email":\s*"[^"]*"` (**Informational** — only report if private_key is also present)
 
 ### Generic Assignments
 - `password|secret|api[_-]?key|token|auth\s*[:=]\s*["'][^"']{8,}["']`
 - `DATABASE_URL\s*=\s*["']?[a-z]+:\/\/`
-- `-----BEGIN (RSA|EC|DSA|OPENSSH)? PRIVATE KEY-----`
+- `-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----`
 
 ## Step 3: Frontend Exposure
-- Check `public/`, `static/` for keys.
-- Next.js: Check if secrets (not prefixed with `NEXT_PUBLIC_`) are used in client components.
+...
 
 ## Step 4: Format Findings
 
 ```
 ### SEC-{NNN}: {title}
-- **Severity**: Critical | High | Medium | Low
+- **Severity**: Critical | High | Medium | Low | Informational
+- **Category**: Secrets
 - **Location**: {file_path}:{line_number}
 - **Evidence**: `{redacted_secret}` (Show first 4 + last 4 chars only)
 - **Remediation**: {specific fix: rotate key, add to .gitignore, use env var}

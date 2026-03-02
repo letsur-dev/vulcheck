@@ -114,9 +114,16 @@ sequenceDiagram
         end
     end
 
+    rect rgb(255, 240, 245)
+        Note over Skill: Step 5b: 적대적 검증 (Adversarial Verification)
+        Skill->>Skill: Sonnet 모델로 각 취약점의 실제 공격 가능성 검토
+        Skill->>Skill: 실무적 위험도(Practical Risk) 판정 및 오탐 제거
+    end
+
     rect rgb(240, 255, 240)
         Note over Skill: Step 6: 리포트 생성 (단일 파일 덮어쓰기)
         Skill->>Skill: ./security-report/codeinspector.md 작성
+        Note over Skill: LLM용 수정 프롬프트(.prompt.md) 포함
     end
 
     Skill-->>사용자: Step 7: 요약 표시

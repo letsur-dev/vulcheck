@@ -32,6 +32,7 @@ Search the DIFF content of all commits (limit to 500). Use `git log -p --all -S 
 ```
 ### GIT-{NNN}: {title}
 - **Severity**: Critical | High
+- **Category**: Git History
 - **Location**: Commit {short_hash} ({date}) — {file_path}
 - **Evidence**: `{redacted_secret}` (First 4 + last 4 chars)
 - **Still in HEAD**: Yes | No

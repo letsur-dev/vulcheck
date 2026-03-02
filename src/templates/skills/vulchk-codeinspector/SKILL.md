@@ -283,27 +283,61 @@ Do NOT re-scan older commits."
 
 Wait for all sub-agents to complete. Collect their outputs.
 
-### FULL_SCAN Mode
+### Step 5b: Adversarial Verification (FP Filtering)
 
-1. Deduplicate findings (same file+line from multiple agents)
-2. **Sort by severity** (Critical > High > Medium > Low > Informational).
-   Within the same severity, sort by category: CVE > OWASP > Secrets > Git > Container
-3. Assign sequential finding numbers (1, 2, 3...) — so #1 is always the most critical
-4. Count totals per severity level
+After merging findings, perform a secondary verification pass using a Sonnet model.
+For each finding (or groups of findings):
 
-### INCREMENTAL Mode
-
-1. Start with the existing findings from the previous report
-2. **Remove** all findings whose Location matches any changed or related file
-3. **Add** new findings from the sub-agent results
-4. **Re-deduplicate** the combined list
-5. **Re-number** sequentially (1, 2, 3...)
-6. **Re-sort** by severity
-7. **Re-count** totals per severity level
-8. If a finding from the old report still exists for an unchanged file,
-   preserve it exactly as-is (including its evidence and remediation)
+1.  **Read the source code** mentioned in the finding.
+2.  **Evaluate exploitability**: Is there a real-world path for an attacker?
+3.  **Check for mitigations**: Are there undocumented sanitizers or infra-level protections (e.g., WAF, internal-only access)?
+4.  **Assign Confidence**:
+    *   **90-100%**: Confirmed exploitable.
+    *   **60-89%**: Theoretically possible but difficult to exploit.
+    *   **<60%**: Likely a False Positive.
+5.  **Re-classify**:
+    *   If <60% confidence → **Remove** from report.
+    *   If 60-89% confidence → Keep but mark **Practical Risk: Low/Theoretical**.
+    *   Update the `Practical Risk` explanation based on this verification.
 
 ## Step 6: Generate Report
+
+...
+
+### Report Structure
+
+Translate all section headers using the language reference above.
+
+**Required sections** (in order):
+
+1. **Header**: Title, Last Updated, Project, Tech Stack, Base Commit (`{short_hash}` — {subject}), Analysis Mode, VulChk Version
+2. **{Executive Summary}**: Finding counts by severity + 2-3 sentence summary
+3. **{Quick Fix List}**: Table — `| # | {Severity} | {Location} | {Description} |` sorted by severity. Location uses `file:line` format.
+4. **{Detailed Findings}**: For each finding:
+   - Severity, Category, Location (`file:line`)
+   - **Practical Risk**: {High | Medium | Low | Theoretical} — {Explanation}
+   - Evidence (code snippet with line numbers)
+   - References (CVE/CWE/OWASP)
+   - Remediation (fix steps + corrected code)
+   - **🤖 Fix Prompt**:
+     ```markdown
+     > Copy and paste this to your AI coding agent:
+     ```prompt.md
+     Fix the following security issue in `{file_path}`:
+     - **Issue**: {finding_title}
+     - **Severity**: {severity}
+     - **Location**: Line {line_number}
+     - **Description**: {description}
+     - **Remediation**: {remediation_steps}
+     - **Context**:
+     ```
+     {evidence}
+     ```
+     Apply the fix while preserving the existing logic.
+     ```
+     ```
+5. **{Analysis Coverage}**: Table — `| {Check} | {Status} | {Files Scanned} | {Findings} |` for each agent. If INCREMENTAL: add `{Changed Files in This Update}` list.
+6. **{Recommendations}**: Top 3-5 prioritized recommendations
 
 Create the directory if it does not exist:
 
