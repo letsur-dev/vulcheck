@@ -285,17 +285,23 @@ Wait for all sub-agents to complete. Collect their outputs.
 
 ### Step 5b: Adversarial Verification (FP Filtering)
 
-After merging findings, perform a secondary verification pass using a Sonnet model.
+After merging findings from **all agents** (CODE, SEC, GIT, CTR prefixed findings),
+perform a secondary verification pass using a Sonnet model.
+Each agent provides an initial `Practical Risk` assessment in its findings.
+This step **validates and adjusts** those assessments based on cross-agent context
+and deeper exploitability analysis.
+
 For each finding (or groups of findings):
 
 1.  **Read the source code** mentioned in the finding.
 2.  **Evaluate exploitability**: Is there a real-world path for an attacker?
 3.  **Check for mitigations**: Are there undocumented sanitizers or infra-level protections (e.g., WAF, internal-only access)?
-4.  **Assign Confidence**:
+4.  **Cross-reference agents**: e.g., a SEC finding of a hardcoded key gains urgency if GIT shows the same key was committed historically and never rotated.
+5.  **Assign Confidence**:
     *   **90-100%**: Confirmed exploitable.
     *   **60-89%**: Theoretically possible but difficult to exploit.
     *   **<60%**: Likely a False Positive.
-5.  **Re-classify**:
+6.  **Re-classify**:
     *   If <60% confidence → **Remove** from report.
     *   If 60-89% confidence → Keep but mark **Practical Risk: Low/Theoretical**.
     *   Update the `Practical Risk` explanation based on this verification.

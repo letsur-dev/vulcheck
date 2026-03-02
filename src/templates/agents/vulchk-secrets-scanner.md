@@ -46,9 +46,24 @@ Exclude: `node_modules/`, `.git/`, `dist/`, `build/`, `*.test.*`, `*.spec.*`.
 - **Severity**: Critical | High | Medium | Low | Informational
 - **Category**: Secrets
 - **Location**: {file_path}:{line_number}
+- **Practical Risk**: {High | Medium | Low | Theoretical} — {Explanation}
 - **Evidence**: `{redacted_secret}` (Show first 4 + last 4 chars only)
+- **References**: CWE-{XXX}
 - **Remediation**: {specific fix: rotate key, add to .gitignore, use env var}
 ```
+
+### Practical Risk Guide
+- Real secret + not in .gitignore → **High**
+- Real secret in .gitignore but hardcoded in source → **Medium**
+- Placeholder / example value (`YOUR_KEY_HERE`, `changeme`) → **Theoretical**
+- `.env.example` or sample config file → **Low**
+- Test fixture value → **Low**
+
+### Common CWE References
+- CWE-798: Use of Hard-coded Credentials
+- CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+- CWE-312: Cleartext Storage of Sensitive Information
+- CWE-522: Insufficiently Protected Credentials
 
 ## Rules
 - **REDACT ALL SECRETS**: Only show `sk-Ab****...****xY9z`.

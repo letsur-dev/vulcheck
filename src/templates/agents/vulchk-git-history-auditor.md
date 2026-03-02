@@ -34,10 +34,21 @@ Search the DIFF content of all commits (limit to 500). Use `git log -p --all -S 
 - **Severity**: Critical | High
 - **Category**: Git History
 - **Location**: Commit {short_hash} ({date}) — {file_path}
+- **Practical Risk**: {High | Medium | Low} — {Explanation}
 - **Evidence**: `{redacted_secret}` (First 4 + last 4 chars)
 - **Still in HEAD**: Yes | No
+- **References**: CWE-{XXX}
 - **Remediation**: Rotate credential immediately, clean history (BFG/filter-branch), force push.
 ```
+
+### Practical Risk Guide
+- Still in HEAD: Yes → **High**
+- Still in HEAD: No + credential not yet rotated → **Medium**
+- Still in HEAD: No + credential already rotated → **Low**
+
+### Common CWE References
+- CWE-798: Use of Hard-coded Credentials
+- CWE-540: Inclusion of Sensitive Information in Source Code
 
 ## Rules
 - **REDACT SECRETS**: Only show `ghp_1234****...****abcd`.

@@ -443,6 +443,15 @@ flowchart TD
 .gitignore 검증 (**파일 존재 연계** — 해당 파일이 실제로 존재할 때만 보고) → 비밀 파일 존재 확인 → 소스 코드 시크릿 Grep → 프론트엔드 노출 검사.
 테스트 파일의 발견 사항은 LOW로 하향 처리.
 
+### 출력 포맷
+
+각 발견 사항에 **Practical Risk** 및 **References** (CWE) 필드를 포함한다:
+
+| 필드 | 설명 |
+|------|------|
+| Practical Risk | High / Medium / Low / Theoretical — 실 시크릿+미보호=High, 플레이스홀더=Theoretical |
+| References | CWE-798 (하드코딩 자격증명), CWE-200 (민감 정보 노출) 등 |
+
 ### v2.1 BaaS / Cloud Platform Keys 패턴 추가
 
 | 패턴 | 심각도 | 이유 |
@@ -467,6 +476,15 @@ flowchart TD
 커밋 diff에서 시크릿 패턴 검색 (15+ 패턴: AWS, GitHub PAT, OpenAI, Stripe, Slack, SendGrid, Supabase, DB 연결 문자열 등). INCREMENTAL 모드에서는 새 커밋만 대상.
 HEAD에 여전히 존재하면 CRITICAL, 이력에만 남아있으면 HIGH.
 **False positive 필터**: test/, fixtures/, .example 파일, placeholder 값(YOUR_KEY_HERE, changeme 등) 자동 제외.
+
+### 출력 포맷
+
+각 발견 사항에 **Practical Risk** 및 **References** (CWE) 필드를 포함한다:
+
+| 필드 | 설명 |
+|------|------|
+| Practical Risk | High / Medium / Low — HEAD 존재 여부와 로테이션 상태 기반 판정 |
+| References | CWE-798 (하드코딩 자격증명), CWE-540 (소스코드 내 민감 정보 포함) 등 |
 
 ## 서브에이전트 5: Container & CI/CD Security Analyzer
 

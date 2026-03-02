@@ -480,5 +480,19 @@ describe('template validation', () => {
       expect(content).not.toContain('client_email → **High**');
       expect(content).toContain('Informational');
     });
+
+    it('secrets scanner includes Practical Risk field and CWE references', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-secrets-scanner.md'), 'utf-8');
+      expect(content).toContain('**Practical Risk**');
+      expect(content).toContain('CWE-798');
+      expect(content).toContain('**References**');
+    });
+
+    it('git-history-auditor includes Practical Risk field and CWE references', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-git-history-auditor.md'), 'utf-8');
+      expect(content).toContain('**Practical Risk**');
+      expect(content).toContain('CWE-798');
+      expect(content).toContain('**References**');
+    });
   });
 });
