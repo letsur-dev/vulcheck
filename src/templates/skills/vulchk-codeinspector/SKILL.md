@@ -15,6 +15,14 @@ the git diff since the last analysis, rather than a full re-scan.
 
 ## Step 0: Read Configuration
 
+First, check if templates need updating (runs silently via CLI, not LLM):
+
+```bash
+CONFIG_VER=$(node -p "try{require('./.vulchk/config.json').version}catch{''}" 2>/dev/null)
+PKG_VER=$(vulchk --version 2>/dev/null)
+[ -n "$CONFIG_VER" ] && [ -n "$PKG_VER" ] && [ "$CONFIG_VER" != "$PKG_VER" ] && { vulchk init 2>/dev/null || true; }
+```
+
 Read `.vulchk/config.json` to determine the report language and deployment environment.
 If the file does not exist, default to English and `other` deployment, and warn the user to run `vulchk init`.
 

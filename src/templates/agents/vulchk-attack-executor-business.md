@@ -90,6 +90,19 @@ If GraphQL endpoint detected in `site-analysis.md`:
   common CRUD patterns
 - **Parameter pollution**: Send duplicate parameters to test handling
 
+### Severity Adjustment Rules
+
+1. **Intended Access Model Check**: "Missing Authentication" finding:
+   - GET-only + non-sensitive aggregate data + entire app has no auth → Low/Informational, Practical Risk: Theoretical
+   - Endpoint path contains /public/, /status, /health → classify as public
+
+2. **Data Boundary Validation**: org/tenant isolation finding:
+   - org data does not exist in system (empty response) → Low, Practical Risk: Theoretical
+   - Note: "org boundary currently inactive — retest when multi-tenancy enabled"
+
+3. **Silent Acceptance vs Actual Impact**: Parameter validation finding:
+   - Invalid values accepted but no error/data leak/behavior change → Low (not Medium)
+
 ## Step 3: Write Results
 
 Phase number mapping: business-logic → 5, api → 6.
@@ -100,6 +113,8 @@ Each finding:
 ```markdown
 ### HSM-{NNN}: {title}
 - **Severity**: Critical | High | Medium | Low | Informational
+- **Practical Risk**: {High | Medium | Low | Theoretical} — {explanation of actual exploitability}
+- **Intended Access**: {public | authenticated | admin-only | unknown} — {basis for determination}
 - **Vector**: http-fetch | api-probe
 - **Endpoint**: {URL/path}
 - **Scenario**: AS-{NNN}
@@ -111,6 +126,18 @@ Each finding:
 ```
 
 Include Attack Log table and Phase Summary.
+
+Also include these tracking tables:
+
+```markdown
+## Passed Tests
+| Test | Endpoint | Result |
+|------|----------|--------|
+
+## Skipped Tests
+| Scenario | Reason |
+|----------|--------|
+```
 
 Write methodology entry to `{workspace}/methodology-{phase}.json`:
 ```json
@@ -138,7 +165,13 @@ Return: `PHASE {N} ({phase}) COMPLETE: {tests} tests, {findings} vulnerabilities
 - Log EVERY request with timestamps via `date +"%Y-%m-%d %H:%M:%S"`
 - NEVER extract actual user data — only prove access is possible
 - ALWAYS redact credentials/tokens (first 4 + last 4 chars only)
-- Use `vulchk-` prefix markers for test payloads
+- Use `vulchk-` prefix markers for ALL test data (username: `vulchk-test-{uuid}`)
+- When DB writes are enabled, log every write to `{workspace}/db-writes.json`:
+  ```json
+  [{"scenario":"AS-NNN","method":"POST","endpoint":"/path","payload":{...},
+    "response_id":"{id}","response_status":200,"timestamp":"...","rollback_hint":"DELETE /path/{id}"}]
+  ```
+- Each write entry must include a `rollback_hint` (expected reverse operation)
 - Do NOT re-test IDOR here — that is covered by the auth agent
 - Do NOT perform denial-of-service attacks
 - Clean up phase-specific cookie jar when done

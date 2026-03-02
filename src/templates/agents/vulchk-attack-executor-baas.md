@@ -166,6 +166,19 @@ curl -s --max-time 5 "{target_url}/search/_cat/health" 2>/dev/null | head -3
 
 HTTP 200 with index/cluster data = unauthenticated Elasticsearch exposure — **High/Critical**.
 
+### Severity Adjustment Rules
+
+1. **Intended Access Model Check**: "Missing Authentication" finding:
+   - GET-only + non-sensitive aggregate data + entire app has no auth → Low/Informational, Practical Risk: Theoretical
+   - Endpoint path contains /public/, /status, /health → classify as public
+
+2. **Data Boundary Validation**: org/tenant isolation finding:
+   - org data does not exist in system (empty response) → Low, Practical Risk: Theoretical
+   - Note: "org boundary currently inactive — retest when multi-tenancy enabled"
+
+3. **Silent Acceptance vs Actual Impact**: Parameter validation finding:
+   - Invalid values accepted but no error/data leak/behavior change → Low (not Medium)
+
 ## Step 5: Write Results
 
 Write results to `{workspace}/phases/phase-2-injection-baas.md`.
@@ -174,6 +187,8 @@ Each finding:
 ```markdown
 ### HSM-{NNN}: {title}
 - **Severity**: Critical | High | Medium | Low | Informational
+- **Practical Risk**: {High | Medium | Low | Theoretical} — {explanation of actual exploitability}
+- **Intended Access**: {public | authenticated | admin-only | unknown} — {basis for determination}
 - **Vector**: api-probe
 - **Endpoint**: {URL/path}
 - **Scenario**: AS-{NNN}
@@ -185,6 +200,18 @@ Each finding:
 ```
 
 Include Attack Log table and Phase Summary.
+
+Also include these tracking tables:
+
+```markdown
+## Passed Tests
+| Test | Endpoint | Result |
+|------|----------|--------|
+
+## Skipped Tests
+| Scenario | Reason |
+|----------|--------|
+```
 
 Write methodology entry to `{workspace}/methodology-baas.json`:
 ```json
@@ -212,5 +239,11 @@ Return: `PHASE 2 (baas) COMPLETE: {tests} tests, {findings} vulnerabilities ({cr
 - Log EVERY request with timestamps via `date +"%Y-%m-%d %H:%M:%S"`
 - NEVER extract actual user data — only prove access is possible
 - ALWAYS redact credentials/tokens/keys (first 4 + last 4 chars only)
-- Use `vulchk-` prefix markers for test payloads
+- Use `vulchk-` prefix markers for ALL test data (username: `vulchk-test-{uuid}`)
+- When DB writes are enabled, log every write to `{workspace}/db-writes.json`:
+  ```json
+  [{"scenario":"AS-NNN","method":"POST","endpoint":"/path","payload":{...},
+    "response_id":"{id}","response_status":200,"timestamp":"...","rollback_hint":"DELETE /path/{id}"}]
+  ```
+- Each write entry must include a `rollback_hint` (expected reverse operation)
 - Do NOT perform denial-of-service attacks

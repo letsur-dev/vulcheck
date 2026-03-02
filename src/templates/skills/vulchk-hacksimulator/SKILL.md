@@ -12,6 +12,14 @@ any requests to the target.
 
 ## Step 0: Read Configuration
 
+First, check if templates need updating (runs silently via CLI, not LLM):
+
+```bash
+CONFIG_VER=$(node -p "try{require('./.vulchk/config.json').version}catch{''}" 2>/dev/null)
+PKG_VER=$(vulchk --version 2>/dev/null)
+[ -n "$CONFIG_VER" ] && [ -n "$PKG_VER" ] && [ "$CONFIG_VER" != "$PKG_VER" ] && { vulchk init 2>/dev/null || true; }
+```
+
 Read `.vulchk/config.json` to determine the report language setting.
 If the file does not exist, default to English and warn the user to run `vulchk init`.
 
@@ -164,6 +172,11 @@ Create the persistent workspace directory for this scan:
 
 ```bash
 mkdir -p .vulchk/hacksim/phases
+```
+
+Clean up previous DB write log:
+```bash
+[ -f .vulchk/hacksim/db-writes.json ] && rm .vulchk/hacksim/db-writes.json
 ```
 
 Initialize methodology tracking if not already present:
@@ -343,6 +356,28 @@ Display the attack plan returned by the planner agent:
 **Approve this attack plan? (yes/no)**
 ```
 
+## Step 7b: DB-Write Impact Assessment
+
+After the attack plan is approved and before launching executors, analyze DB write scenarios.
+
+1. Filter `attack-scenarios.md` for scenarios with `DB Write: yes`
+2. If DB write scenarios exist, display to the user:
+
+   ```
+   ## DB Impact Analysis
+   | Scenario | Description | Impact |
+   |----------|-------------|--------|
+   {list of DB Write: yes scenarios}
+
+   Options:
+   1. **Include DB writes** — Execute all tests (automatic rollback attempted after testing)
+   2. **Exclude DB writes** (recommended) — Skip all DB-modifying scenarios
+   ```
+
+3. If "Exclude" selected: pass the DB write scenario IDs as exclusion filter to executors
+4. If "Include" selected: instruct executors to log DB writes + require `vulchk-` prefix for all test data
+5. If no DB write scenarios exist, skip this step automatically
+
 ## Step 8: Launch Attack Executor — Multi-Pass Model
 
 ### Error Handling & Rate Limiting (Orchestrator Level)
@@ -469,6 +504,18 @@ For each phase in `[exploitation, advanced, post-exploit]`, launch
 
 **Pass 3 phases run sequentially** because each may depend on previous findings.
 
+## Step 8b: DB Rollback
+
+Condition: Step 7b selected "Include DB writes" AND `{workspace}/db-writes.json` exists.
+
+1. Read `db-writes.json`
+2. For each write operation in reverse order, attempt rollback:
+   - If response contains an `id` field: `DELETE {endpoint}/{id}`
+   - If data has `vulchk-` prefix: identify and delete by identifier
+3. Record results to `{workspace}/db-rollback.json`
+4. For failed rollbacks: add a warning section to the report header
+5. On success: record "N DB writes successfully rolled back" in the Methodology section
+
 ## Step 9: Generate Report
 
 Create the directory if it does not exist:
@@ -492,8 +539,30 @@ ls .vulchk/hacksim/phases/phase-*.md 2>/dev/null
 cat .vulchk/hacksim/methodology.json 2>/dev/null
 ```
 
+Get git commit info for the report header:
+```bash
+git rev-parse --short HEAD 2>/dev/null
+git log -1 --format="%s" 2>/dev/null
+```
+
+If in a git repo, include in the report header:
+`- **Base Commit**: \`{short_hash}\` — {commit_subject}`
+If not a git repo (commands fail), omit the Base Commit line.
+
 Merge all findings (HSM-{NNN}) from all phase files into a single consolidated
 list, sorted by severity. Merge all attack logs chronologically.
+
+### Cross-Agent Discrepancy Detection
+
+After collecting all phase results, detect cases where different agents reported
+conflicting results for the same endpoint:
+
+- Injection agent: 400 (blocked) vs Business agent: 200 (allowed) → requires explanation
+- One agent reports "not vulnerable" vs another agent reports a finding on the same endpoint
+
+For each detected discrepancy, add a Cross-Agent Note in Detailed Findings:
+  - Summary of each agent's result
+  - Explanation of the discrepancy (e.g., "SQL metacharacters are blocked but non-malicious invalid values are accepted")
 
 Generate the report file at `./security-report/hacksimulator-{YYYY-MM-DD-HHmmss}.md`.
 
@@ -529,18 +598,23 @@ Translate all section headers using the language reference above.
 
 **Required sections** (in order):
 
-1. **Header**: Title, Date, Target, Intensity, VulChk Version, ratatosk-cli status
+1. **Header**: Title, Date, Target, Intensity, Base Commit (`{short_hash}` — {commit_subject}), VulChk Version, ratatosk-cli status
 2. **{Executive Summary}**: Finding counts by severity + 2-3 sentence summary
-3. **{Attack Plan Summary}**: Intensity, basis (codeinspector/recon), brief phase description
-4. **{Findings Summary}**: Table — `| # | {Severity} | {Vector} | {Endpoint} | {Description} |` sorted by severity
-5. **{Detailed Findings}**: For each finding: Severity, Vector, Endpoint, Request (http block), Response, Evidence, References (CWE/OWASP), Remediation
-6. **{Attack Log}**: Table — `| # | {Timestamp} | {Vector} | {Endpoint} | {Payload} | {Status} | {Result} |` chronological
-7. **{Methodology}**:
+3. **{Test Result Summary}**:
+   a. **{Vulnerable (Action Required)}**: `| # | Severity | Practical Risk | Endpoint | Description |`
+   b. **{Safe (No Issues)}**: `| Test | Endpoint | Result |` — ✅ icon with pass rationale
+   c. **{Not Tested (Skipped)}**: `| Scenario | Reason |`
+4. **{Attack Plan Summary}**: Intensity, basis (codeinspector/recon), brief phase description
+5. **{Findings Summary}**: Table — `| # | {Severity} | {Status} | {Vector} | {Endpoint} | {Description} |` sorted by severity (Status: Vulnerable | Pass | Skipped)
+6. **{Detailed Findings}**: For each finding: Severity, Practical Risk, Intended Access, Vector, Endpoint, Request (http block), Response, Evidence, References (CWE/OWASP), Remediation
+7. **{Attack Log}**: Table — `| # | {Timestamp} | {Vector} | {Endpoint} | {Payload} | {Status} | {Result} |` chronological
+8. **{Methodology}**:
    - {Execution Summary}: Table — `| # | {Phase} | {Duration} | {Tests} | {Findings} | {Vector} |` from methodology JSONs
    - {Attack Scenario Coverage}: Table — `| AS-# | {Scenario} | {Phase} | {Result} | {Finding} |`
    - {Tools Used}: curl + ratatosk (if available)
-8. **{Coverage Notes}**: {Tests Performed}, {Tests Skipped}, {Limitations}
-9. **{Recommendations}**: Top 3-5 prioritized recommendations
+9. **{Coverage Notes}**: {Tests Performed}, {Tests Skipped}, {Limitations}
+10. **{Recommendations}**: Top 3-5 prioritized recommendations
+    - Include a **{Positive Findings}** subsection: items the app handles correctly (input validation working, CORS restrictions enforced, etc.)
 
 Footer: `*{Generated by VulChk Hack Simulator}*`
 

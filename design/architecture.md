@@ -170,6 +170,40 @@ flowchart TD
     Summary --> End
 ```
 
+### 버전 동기화
+
+`vulchk init`으로 설치된 스킬/에이전트 파일은 설치 당시 vulchk 버전 기준이다.
+패키지 업데이트 후 `vulchk init`을 실행하면, config의 version과 패키지 version을
+비교하여 **자동으로 템플릿을 갱신**한다.
+
+```mermaid
+flowchart TD
+    Start([vulchk init]) --> Banner["ASCII 배너 출력"]
+    Banner --> CheckInit{"isInitialized()?"}
+    CheckInit -->|"미초기화 또는 --force"| FullSetup["풀 인터랙티브 셋업"]
+    CheckInit -->|"이미 초기화됨 & --force 없음"| VerCheck{"config.version ≠ pkg.version?"}
+    VerCheck -->|불일치| Upgrade["자동 업그레이드:<br>1. cleanVulchkSkills()<br>2. cleanVulchkAgents()<br>3. copySkills()<br>4. copyAgents()<br>5. version 갱신"]
+    Upgrade --> Done([완료])
+    VerCheck -->|일치| AskReconfigure{"재설정?"}
+    AskReconfigure -->|건너뛰기| Done
+    AskReconfigure -->|재설정| FullSetup
+```
+
+**자동 업그레이드 동작:**
+- 새 플래그/커맨드 없이 init 자체가 버전 불일치를 감지
+- `vulchk-` 접두사 파일만 선별 삭제 후 새로 복사 (사용자 파일 보존)
+- 기존 language/deployment 설정은 유지, version만 갱신
+- 프롬프트 없이 자동 처리
+
+**SKILL.md Step 0 자동 트리거:**
+각 스킬의 Step 0에서 bash로 버전 비교 후, 불일치 시 `vulchk init`을 호출하여
+스킬 실행 시점에도 자동으로 템플릿이 갱신된다:
+```bash
+CONFIG_VER=$(node -p "try{require('./.vulchk/config.json').version}catch{''}" 2>/dev/null)
+PKG_VER=$(vulchk --version 2>/dev/null)
+[ -n "$CONFIG_VER" ] && [ -n "$PKG_VER" ] && [ "$CONFIG_VER" != "$PKG_VER" ] && { vulchk init 2>/dev/null || true; }
+```
+
 ### 파일 처리 함수 (`file-ops.js`)
 
 | 함수 | 설명 |
@@ -180,6 +214,8 @@ flowchart TD
 | `isInitialized(root)` | `.vulchk/config.json` 존재 여부 확인 |
 | `copySkills(root)` | `templates/skills/` → `.claude/skills/` 복사 |
 | `copyAgents(root)` | `templates/agents/` → `.claude/agents/` 복사 |
+| `cleanVulchkSkills(root)` | `.claude/skills/vulchk-*` 디렉토리 삭제 (사용자 파일 보존) |
+| `cleanVulchkAgents(root)` | `.claude/agents/vulchk-*.md` 파일 삭제 (사용자 파일 보존) |
 
 모든 파일 처리는 `fs-extra`를 ESM 디폴트 임포트 패턴으로 사용:
 ```js

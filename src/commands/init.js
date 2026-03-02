@@ -9,6 +9,8 @@ import {
   writeConfig,
   isInitialized,
   readConfig,
+  cleanVulchkSkills,
+  cleanVulchkAgents,
 } from '../utils/file-ops.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -44,6 +46,21 @@ export async function initCommand(options) {
   // Check for existing configuration
   if (isInitialized(projectRoot) && !options.force) {
     const existing = readConfig(projectRoot);
+
+    // Version mismatch → automatic upgrade (no prompts)
+    if (existing?.version && existing.version !== pkg.version) {
+      const oldVersion = existing.version;
+      cleanVulchkSkills(projectRoot);
+      cleanVulchkAgents(projectRoot);
+      copySkills(projectRoot);
+      copyAgents(projectRoot);
+      existing.version = pkg.version;
+      writeConfig(projectRoot, existing);
+      console.log(chalk.green('  ✓') + ` Templates upgraded: ${chalk.dim(oldVersion)} → ${chalk.green(pkg.version)}`);
+      return;
+    }
+
+    // Version matches → existing reconfigure/skip prompt
     console.log(chalk.yellow('  VulChk is already initialized in this project.'));
     console.log(chalk.dim(`  Current config: language=${existing?.language || 'unknown'}, deployment=${existing?.deployment || 'unknown'}`));
     console.log();

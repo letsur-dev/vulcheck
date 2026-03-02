@@ -119,6 +119,29 @@ valid certificate (not expired, correct CN/SAN).
 Request a nonexistent path. Check if error responses leak stack traces,
 framework versions, file paths, or database information.
 
+### 2g. Rate Limiting Assessment
+
+1. Count the total number of requests sent during this phase
+2. Check whether any 429 responses were received
+3. If 15+ requests sent and no 429 received:
+   - App with no authentication: Medium (Rate Limiting not implemented)
+   - App with authentication: Low
+   - Reference: CWE-799, OWASP A04:2021
+4. If `X-RateLimit-*` headers are present: record as a Positive Finding
+
+### Severity Adjustment Rules
+
+1. **Intended Access Model Check**: "Missing Authentication" finding:
+   - GET-only + non-sensitive aggregate data + entire app has no auth → Low/Informational, Practical Risk: Theoretical
+   - Endpoint path contains /public/, /status, /health → classify as public
+
+2. **Data Boundary Validation**: org/tenant isolation finding:
+   - org data does not exist in system (empty response) → Low, Practical Risk: Theoretical
+   - Note: "org boundary currently inactive — retest when multi-tenancy enabled"
+
+3. **Silent Acceptance vs Actual Impact**: Parameter validation finding:
+   - Invalid values accepted but no error/data leak/behavior change → Low (not Medium)
+
 ## Step 3: Write Results
 
 Write results to `{workspace}/phases/phase-1-passive.md`.
@@ -127,6 +150,8 @@ Each finding:
 ```markdown
 ### HSM-{NNN}: {title}
 - **Severity**: Critical | High | Medium | Low | Informational
+- **Practical Risk**: {High | Medium | Low | Theoretical} — {explanation of actual exploitability}
+- **Intended Access**: {public | authenticated | admin-only | unknown} — {basis for determination}
 - **Vector**: http-fetch
 - **Endpoint**: {URL/path}
 - **Scenario**: AS-{NNN}
@@ -138,6 +163,18 @@ Each finding:
 ```
 
 Include Attack Log table and Phase Summary (tests executed, findings by severity, duration).
+
+Also include these tracking tables:
+
+```markdown
+## Passed Tests
+| Test | Endpoint | Result |
+|------|----------|--------|
+
+## Skipped Tests
+| Scenario | Reason |
+|----------|--------|
+```
 
 Write methodology entry to `{workspace}/methodology-passive.json`:
 ```json

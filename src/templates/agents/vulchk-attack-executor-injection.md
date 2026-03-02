@@ -131,6 +131,19 @@ response time. If elapsed >= 5 seconds vs baseline, confirmed.
 
 **Severity**: CRITICAL (auth bypass), HIGH (data exposure)
 
+### Severity Adjustment Rules
+
+1. **Intended Access Model Check**: "Missing Authentication" finding:
+   - GET-only + non-sensitive aggregate data + entire app has no auth → Low/Informational, Practical Risk: Theoretical
+   - Endpoint path contains /public/, /status, /health → classify as public
+
+2. **Data Boundary Validation**: org/tenant isolation finding:
+   - org data does not exist in system (empty response) → Low, Practical Risk: Theoretical
+   - Note: "org boundary currently inactive — retest when multi-tenancy enabled"
+
+3. **Silent Acceptance vs Actual Impact**: Parameter validation finding:
+   - Invalid values accepted but no error/data leak/behavior change → Low (not Medium)
+
 ## Step 3: Write Results
 
 Write results to `{workspace}/phases/phase-2-injection.md`.
@@ -139,6 +152,8 @@ Each finding:
 ```markdown
 ### HSM-{NNN}: {title}
 - **Severity**: Critical | High | Medium | Low | Informational
+- **Practical Risk**: {High | Medium | Low | Theoretical} — {explanation of actual exploitability}
+- **Intended Access**: {public | authenticated | admin-only | unknown} — {basis for determination}
 - **Vector**: http-fetch | browser
 - **Endpoint**: {URL/path}
 - **Scenario**: AS-{NNN}
@@ -150,6 +165,18 @@ Each finding:
 ```
 
 Include Attack Log table and Phase Summary.
+
+Also include these tracking tables:
+
+```markdown
+## Passed Tests
+| Test | Endpoint | Result |
+|------|----------|--------|
+
+## Skipped Tests
+| Scenario | Reason |
+|----------|--------|
+```
 
 Write methodology entry to `{workspace}/methodology-injection.json`:
 ```json

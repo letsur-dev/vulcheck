@@ -265,6 +265,7 @@ Sequential entries AS-001, AS-002, etc. Each entry:
 - **Technique**: {specific technique(s)}
 - **Priority**: {1-5} {(from codeinspector CODE-XXX) if applicable}
 - **Browser Required**: {yes | no}
+- **DB Write**: {yes | no} — {if yes, description of data change}
 ```
 
 Phase assignment: NoSQL injection → `injection`, Supabase RLS bypass → `injection`.
@@ -288,6 +289,10 @@ ATTACK PLAN GENERATION COMPLETE
 
 ## Important Notes
 
+- **DB Write tagging rules**:
+  - POST/PUT/PATCH/DELETE → default `DB Write: yes`
+  - GET/HEAD/OPTIONS → `DB Write: no`
+  - POST used for read-only queries → planner may explicitly set `DB Write: no`
 - Always perform business logic analysis (Step 3) — these vulnerabilities
   are often the highest impact and cannot be detected by pattern matching
 - NEVER send attack payloads during planning — reconnaissance only

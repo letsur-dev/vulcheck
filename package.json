@@ -1,6 +1,6 @@
 {
   "name": "@letsur-dev/vulchk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Security analysis toolkit for Claude Code - code inspection and penetration testing via slash commands",
   "type": "module",
   "bin": {

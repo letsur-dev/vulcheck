@@ -2,7 +2,7 @@ import fse from 'fs-extra';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse;
+const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync, readdirSync, removeSync } = fse;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,4 +63,30 @@ export function readConfig(projectRoot) {
  */
 export function isInitialized(projectRoot) {
   return existsSync(join(projectRoot, '.vulchk', 'config.json'));
+}
+
+/**
+ * Remove vulchk-prefixed skill directories (preserves user-created skills).
+ */
+export function cleanVulchkSkills(projectRoot) {
+  const skillsDir = join(projectRoot, '.claude', 'skills');
+  if (!existsSync(skillsDir)) return;
+  for (const entry of readdirSync(skillsDir)) {
+    if (entry.startsWith('vulchk-')) {
+      removeSync(join(skillsDir, entry));
+    }
+  }
+}
+
+/**
+ * Remove vulchk-prefixed agent files (preserves user-created agents).
+ */
+export function cleanVulchkAgents(projectRoot) {
+  const agentsDir = join(projectRoot, '.claude', 'agents');
+  if (!existsSync(agentsDir)) return;
+  for (const entry of readdirSync(agentsDir)) {
+    if (entry.startsWith('vulchk-') && entry.endsWith('.md')) {
+      removeSync(join(agentsDir, entry));
+    }
+  }
 }
