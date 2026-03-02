@@ -248,67 +248,49 @@ Identify all data entry points in the codebase:
 
 #### Sinks (Dangerous Functions)
 
-| Category | Sink Examples |
+| Category | Sanitizer Examples |
 |----------|-------------|
-| SQL Injection | `db.query()`, `execute()`, `raw()`, `sequelize.literal()`, `.extra()` |
-| XSS | `innerHTML`, `document.write()`, `dangerouslySetInnerHTML`, `v-html` |
-| Command Injection | `exec()`, `spawn()`, `system()`, `subprocess.run()`, `eval()` |
-| Path Traversal | `fs.readFile()`, `open()`, `path.join()` with user input |
-| SSRF | `fetch()`, `axios()`, `requests.get()`, `http.get()` with user-controlled URL |
-| Deserialization | `JSON.parse()`, `pickle.loads()`, `yaml.load()`, `unserialize()` |
+| Input Validation | Zod schemas (`.parse()`, `.safeParse()`), Pydantic models, Joi, Yup |
+| SQL Injection | Parameterized queries, ORM prepared statements |
+| XSS | `DOMPurify.sanitize()`, `escapeHtml()`, React/Angular default interpolation |
+| API Contracts | TypeScript interfaces (for type safety), Zod (for runtime validation) |
 
 #### Chain of Thought — Mandatory Reasoning Process
 
 For EVERY regex match, you MUST follow this exact reasoning chain before
-reporting. Do not skip steps — each step gates the next.
+reporting.
 
 **Step A — "What did I find?"**
-Read 30-50 lines of surrounding context around the match.
-Ask: What is the Sink (dangerous function) and what data flows into it?
+Read context. Identify Sink and the data flowing into it.
 
 **Step B — "Where does the data come from?"**
-Trace the variable backwards through assignments, function parameters,
-and return values. Ask: Does this data originate from a Source (user input)?
-- If the data is a hardcoded string, constant, or server-generated value → **STOP: False Positive**
-- If the data comes from a Source or is unclear → continue to Step C
+Trace Source (user input). If hardcoded/constant → **STOP**.
 
 **Step C — "Is there protection in between?"**
-Between the Source and the Sink, look for:
-- Parameterized queries / prepared statements
-- Input validation (allowlists, regex filters, type checks)
-- Output encoding / escaping functions (e.g., `DOMPurify.sanitize()`,
-  `escapeHtml()`, `bleach.clean()`)
-- ORM methods that auto-parameterize (e.g., Prisma, SQLAlchemy ORM)
-Ask: Is the sanitization sufficient to prevent exploitation?
-- If fully sanitized → **STOP: False Positive**
-- If partially sanitized → continue to Step D with "Potential" flag
-- If no sanitization → continue to Step D with "Confirmed" flag
+Check for:
+- **Runtime Validation**: Is the data validated via **Zod schema** or **Pydantic model** before reaching the sink?
+- **Parameterized Queries**: Are prepare/bind used?
+- **Escaping**: Is output encoded?
+Ask: Is the protection sufficient?
+- If validated by Zod/Pydantic/Sanitizer → **STOP: False Positive**
+- If partially sanitized → report as "Potential"
+- If no sanitization → report as "Confirmed"
 
 **Step D — "What is the actual risk?"**
-Classify the finding:
-- **Confirmed**: Source reaches Sink without sanitization → report as-is
-- **Potential**: Source reaches Sink but some validation exists (may be
-  insufficient) → report with note about partial mitigation
-- **False Positive**: Sink only receives hardcoded/validated data → do NOT report
+Final classification based on A-C.
 
 #### Cross-File Tracking
+Trace callers using Grep. Check if any caller passes unvalidated user input.
 
-When a function parameter is the Sink input, trace the callers:
+### Step 3: Framework-Specific Checks
 
-```
-// file: routes/user.js
-function updateUser(data) {     ← data is the parameter
-  db.query(`UPDATE users SET name = '${data.name}'`);  ← Sink
-}
+#### Node.js / Express / Next.js
+- Check if `Zod` is used to validate `req.body` or `formData()`.
+- If a Zod schema is applied via `.parse()` before the sink, the flow is safe.
 
-// file: controllers/api.js
-router.post('/user', (req, res) => {
-  updateUser(req.body);  ← Source: req.body flows into data
-});
-```
-
-Use Grep to find all call sites: `grep -rn "updateUser(" src/`
-Read each caller to determine if the Source is user-controlled.
+#### FastAPI / Python
+- Check if `Pydantic` models are used for request bodies or query parameters.
+- FastAPI auto-validates Pydantic models; if a sink receives a Pydantic model field, it is safe.
 
 #### Severity Adjustment Based on Taint Analysis
 
@@ -342,6 +324,68 @@ Return findings in this exact format:
 ```
 CODE PATTERN SCAN COMPLETE: {files_scanned} files scanned, {vuln_count} patterns found ({critical} critical, {high} high, {medium} medium, {low} low). Taint analysis performed: {confirmed} confirmed, {potential} potential, {false_positives} false positives removed
 ```
+
+## False Positive Precedents — DO NOT REPORT These
+
+These are patterns that look like vulnerabilities but are NOT exploitable in
+practice. If your finding matches any of these, classify it as False Positive
+and do NOT include it in the report.
+
+1. **Environment variables and CLI flags are trusted values.** An attack that
+   requires the attacker to control an environment variable or CLI argument is
+   invalid — these are not user-controlled in production.
+
+2. **React and Angular auto-escape output by default.** Do NOT report XSS in
+   React/Angular components or `.tsx`/`.jsx` files UNLESS the code uses
+   `dangerouslySetInnerHTML`, `bypassSecurityTrustHtml`, or similar explicit
+   bypass methods. Normal JSX interpolation `{userInput}` is safe.
+
+3. **Client-side JS/TS code does not need auth or permission checks.**
+   Authentication, authorization, and input validation are the server's
+   responsibility. A lack of auth checks in frontend code is NOT a
+   vulnerability. The same applies to all flows that send data to the backend
+   — the backend is responsible for validation.
+
+4. **Client-side SSRF and Path Traversal are not valid.** SSRF requires
+   server-side request forgery. Client-side `fetch()` or `axios()` in
+   browser code cannot access internal networks. Similarly, `../` path
+   traversal in HTTP requests is a server-side concern, not client-side.
+
+5. **UUIDs are unguessable.** If exploiting a vulnerability requires guessing
+   a UUID (v4), it is not a valid attack vector. Do not report IDOR or
+   auth bypass that depends on UUID prediction.
+
+6. **Logging non-secret, non-PII data is not a vulnerability.** Only report
+   logging issues if the logged data contains secrets (API keys, passwords,
+   tokens), private keys, or personally identifiable information (PII).
+   Logging URLs, request paths, status codes, or general metadata is safe.
+
+7. **Shell script command injection is rarely exploitable.** Shell scripts
+   typically run with trusted inputs (cron jobs, CI pipelines, admin scripts).
+   Only report command injection in shell scripts if there is a concrete,
+   specific path for untrusted user input to reach the vulnerable command.
+
+8. **GitHub Action workflow vulnerabilities are rarely exploitable in
+   practice.** Before reporting a vulnerability in a `.github/workflows/`
+   file, verify it has a concrete attack path with untrusted input. Most
+   workflow issues are theoretical.
+
+9. **Test files are not production code.** Do not report vulnerabilities in
+   files that are clearly test code (`*.test.*`, `*.spec.*`, `__tests__/`,
+   `test/`, `tests/`). Hardcoded credentials in test fixtures are acceptable.
+
+10. **ORM default behavior is safe.** Prisma, SQLAlchemy ORM mode,
+    TypeORM QueryBuilder with parameters, and Django ORM auto-parameterize
+    queries. Only report SQL injection when using raw query methods
+    (`$queryRaw`, `text()`, `.raw()`, `.extra()`) with string interpolation.
+
+11. **Missing rate limiting is not a vulnerability.** Rate limiting is an
+    operational concern, not a code vulnerability. Do not report missing rate
+    limiting unless specifically asked.
+
+12. **DoS / resource exhaustion is out of scope.** Do not report denial of
+    service, memory exhaustion, CPU exhaustion, infinite loops, or unbounded
+    recursion. These are operational issues handled by infrastructure.
 
 ## Important Notes
 

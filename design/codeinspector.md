@@ -422,8 +422,8 @@ flowchart TD
 | 구분 | 예시 |
 |------|------|
 | **Source** (입력) | `req.body`, `req.params`, `searchParams`, `Body()`, `request.GET` |
-| **Sink** (위험) | `db.query()`, `innerHTML`, `exec()`, `eval()`, `fetch(userUrl)`, `collection.find()`, `Object.assign()`, `_.merge()`, `res.redirect()`, `Model.create(req.body)` |
-| **Sanitizer** (검증) | 파라미터 바인딩, `DOMPurify.sanitize()`, 입력 검증, ORM 자동 파라미터화, URL 허용목록 검증, 필드 필터링 |
+| **Sink** (위험) | `db.query()`, `innerHTML`, `exec()`, `eval()`, `fetch(userUrl)`, `collection.find()`, `Object.assign()`, `Model.create(req.body)` |
+| **Sanitizer** (검증) | **Zod (`.parse()`)**, **Pydantic Models**, 파라미터 바인딩, `DOMPurify.sanitize()`, 입력 검증, ORM 자동 파라미터화 |
 
 정규식 매칭 → 30-50줄 컨텍스트 읽기 → Source 역추적 → Sanitizer 확인 → 판정
 

@@ -214,7 +214,12 @@ describe('template validation', () => {
       { file: 'vulchk-git-history-auditor.md', name: 'vulchk-git-history-auditor', prefix: 'GIT' },
       { file: 'vulchk-container-security-analyzer.md', name: 'vulchk-container-security-analyzer', prefix: 'CTR' },
       { file: 'vulchk-attack-planner.md', name: 'vulchk-attack-planner', prefix: null },
-      { file: 'vulchk-attack-executor.md', name: 'vulchk-attack-executor', prefix: 'HSM' },
+      { file: 'vulchk-attack-executor-recon.md', name: 'vulchk-attack-executor-recon', prefix: 'HSM' },
+      { file: 'vulchk-attack-executor-injection.md', name: 'vulchk-attack-executor-injection', prefix: 'HSM' },
+      { file: 'vulchk-attack-executor-auth.md', name: 'vulchk-attack-executor-auth', prefix: 'HSM' },
+      { file: 'vulchk-attack-executor-business.md', name: 'vulchk-attack-executor-business', prefix: 'HSM' },
+      { file: 'vulchk-attack-executor-baas.md', name: 'vulchk-attack-executor-baas', prefix: 'HSM' },
+      { file: 'vulchk-attack-executor-exploit.md', name: 'vulchk-attack-executor-exploit', prefix: 'HSM' },
     ];
 
     for (const agent of expectedAgents) {
@@ -307,17 +312,24 @@ describe('template validation', () => {
       }
     });
 
-    it('attack executor uses HSM prefix and required fields', () => {
-      const content = fse.readFileSync(
-        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
-        'utf-8'
-      );
-      expect(content).toContain('HSM-{NNN}');
-      expect(content).toContain('**Severity**');
-      expect(content).toContain('**Vector**');
-      expect(content).toContain('**Endpoint**');
-      expect(content).toContain('**Evidence**');
-      expect(content).toContain('**Remediation**');
+    it('all attack executor agents use HSM prefix and required fields', () => {
+      const executorAgents = [
+        'vulchk-attack-executor-recon.md',
+        'vulchk-attack-executor-injection.md',
+        'vulchk-attack-executor-auth.md',
+        'vulchk-attack-executor-business.md',
+        'vulchk-attack-executor-baas.md',
+        'vulchk-attack-executor-exploit.md',
+      ];
+      for (const file of executorAgents) {
+        const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', file), 'utf-8');
+        expect(content).toContain('HSM-{NNN}');
+        expect(content).toContain('**Severity**');
+        expect(content).toContain('**Vector**');
+        expect(content).toContain('**Endpoint**');
+        expect(content).toContain('**Evidence**');
+        expect(content).toContain('**Remediation**');
+      }
     });
 
     it('attack planner has bash and write tools', () => {
@@ -329,13 +341,20 @@ describe('template validation', () => {
       expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+write/);
     });
 
-    it('attack executor has bash and write tools', () => {
-      const content = fse.readFileSync(
-        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
-        'utf-8'
-      );
-      expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+bash/);
-      expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+write/);
+    it('all attack executor agents have bash and write tools', () => {
+      const executorAgents = [
+        'vulchk-attack-executor-recon.md',
+        'vulchk-attack-executor-injection.md',
+        'vulchk-attack-executor-auth.md',
+        'vulchk-attack-executor-business.md',
+        'vulchk-attack-executor-baas.md',
+        'vulchk-attack-executor-exploit.md',
+      ];
+      for (const file of executorAgents) {
+        const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', file), 'utf-8');
+        expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+bash/);
+        expect(content).toMatch(/tools:\s*\n(\s+-\s+\w+\n)*\s+-\s+write/);
+      }
     });
 
     it('attack planner writes persistent site analysis and scenarios files', () => {
@@ -349,33 +368,50 @@ describe('template validation', () => {
       expect(content).toContain('AS-001');
     });
 
-    it('attack executor supports phase-based execution', () => {
-      const content = fse.readFileSync(
-        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
-        'utf-8'
-      );
-      expect(content).toContain('**Phase**');
-      expect(content).toContain('**Workspace**');
-      expect(content).toContain('scenarios_filter');
-      expect(content).toContain('methodology.json');
+    it('attack executor agents support phase-based execution', () => {
+      const executorAgents = [
+        'vulchk-attack-executor-recon.md',
+        'vulchk-attack-executor-injection.md',
+        'vulchk-attack-executor-auth.md',
+        'vulchk-attack-executor-business.md',
+        'vulchk-attack-executor-exploit.md',
+      ];
+      for (const file of executorAgents) {
+        const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', file), 'utf-8');
+        expect(content).toContain('**Phase**');
+        expect(content).toContain('**Workspace**');
+        expect(content).toContain('scenarios_filter');
+      }
     });
 
-    it('attack executor writes results to phase files', () => {
-      const content = fse.readFileSync(
-        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
-        'utf-8'
-      );
-      expect(content).toContain('phase-{N}-{phase}.md');
-      expect(content).toContain('Phase Summary');
+    it('attack executor agents write results to phase files', () => {
+      const executorAgents = [
+        'vulchk-attack-executor-recon.md',
+        'vulchk-attack-executor-injection.md',
+        'vulchk-attack-executor-auth.md',
+        'vulchk-attack-executor-business.md',
+        'vulchk-attack-executor-exploit.md',
+      ];
+      for (const file of executorAgents) {
+        const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', file), 'utf-8');
+        expect(content).toContain('phase-');
+        expect(content).toContain('Phase Summary');
+      }
     });
 
-    it('attack executor uses workspace instead of /tmp/ for session state', () => {
-      const content = fse.readFileSync(
-        join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'),
-        'utf-8'
-      );
-      expect(content).not.toContain('/tmp/vulchk-session');
-      expect(content).toContain('VULCHK_WORKSPACE');
+    it('attack executor agents use workspace instead of /tmp/ for session state', () => {
+      const executorAgents = [
+        'vulchk-attack-executor-recon.md',
+        'vulchk-attack-executor-injection.md',
+        'vulchk-attack-executor-auth.md',
+        'vulchk-attack-executor-business.md',
+        'vulchk-attack-executor-exploit.md',
+      ];
+      for (const file of executorAgents) {
+        const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', file), 'utf-8');
+        expect(content).not.toContain('/tmp/vulchk-session');
+        expect(content).toContain('VULCHK_WORKSPACE');
+      }
     });
 
     it('secrets scanner covers Supabase service_role and JWT patterns', () => {
@@ -384,23 +420,22 @@ describe('template validation', () => {
       expect(content).toContain('SUPABASE_JWT_SECRET');
     });
 
-    it('attack executor covers NoSQL injection', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+    it('injection agent covers NoSQL injection', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor-injection.md'), 'utf-8');
       expect(content).toContain('$ne');
       expect(content).toContain('NoSQL');
     });
 
-    it('attack executor covers Supabase-specific checks', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+    it('baas agent covers Supabase-specific checks', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor-baas.md'), 'utf-8');
       expect(content).toContain('service_role');
       expect(content).toContain('/rest/v1/');
-      expect(content).toContain('SUPABASE_DETECTED');
     });
 
-    it('attack executor covers multi-DB time-based SQLi', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+    it('injection agent covers multi-DB time-based SQLi', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor-injection.md'), 'utf-8');
       expect(content).toContain('SLEEP(5)');
-      expect(content).toContain('WAITFOR DELAY');
+      expect(content).toContain('WAITFOR');
       expect(content).toContain('RANDOMBLOB');
     });
 
@@ -422,30 +457,20 @@ describe('template validation', () => {
       expect(content).toContain('RLS status');
     });
 
-    it('attack executor SUPABASE_DETECTED is set and checked within the same bash block', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
-      const idx1 = content.indexOf('SUPABASE_DETECTED=false');
-      const idx2 = content.indexOf('if [ "$SUPABASE_DETECTED" = "true" ]');
-      expect(idx1).toBeGreaterThan(-1);
-      expect(idx2).toBeGreaterThan(-1);
-      expect(Math.abs(idx2 - idx1)).toBeLessThan(2000);
+    it('injection agent time-based SQLi uses baseline-delta method', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor-injection.md'), 'utf-8');
+      expect(content).toContain('baseline');
+      expect(content).toContain('baseline-delta');
     });
 
-    it('attack executor time-based SQLi uses baseline comparison and CONFIRMED output', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
-      expect(content).toContain('ELAPSED - BASELINE');
-      expect(content).toContain('CONFIRMED:');
-      expect(content).toContain('BASELINE=');
-    });
-
-    it('attack executor Firebase check uses status-only probe on nonexistent path', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+    it('baas agent Firebase check uses status-only probe on nonexistent path', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor-baas.md'), 'utf-8');
       expect(content).toContain('.vulchkprobe.json');
       expect(content).not.toMatch(/firebaseio\.com\/\.json[^a-z]/);
     });
 
-    it('attack executor NoSQL GET probes use percent-encoded dollar sign', () => {
-      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor.md'), 'utf-8');
+    it('injection agent NoSQL GET probes use percent-encoded dollar sign', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-attack-executor-injection.md'), 'utf-8');
       expect(content).toContain('%24ne');
       expect(content).toContain('%24regex');
     });

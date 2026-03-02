@@ -30,7 +30,12 @@ VulChk는 **Claude Code 내부에서 실행**되는 보안 분석 툴킷이다.
 │      ├── vulchk-git-history-auditor.md
 │      ├── vulchk-container-security-analyzer.md
 │      ├── vulchk-attack-planner.md
-│      └── vulchk-attack-executor.md
+│      ├── vulchk-attack-executor-recon.md
+│      ├── vulchk-attack-executor-injection.md
+│      ├── vulchk-attack-executor-auth.md
+│      ├── vulchk-attack-executor-business.md
+│      ├── vulchk-attack-executor-baas.md
+│      └── vulchk-attack-executor-exploit.md
 └──────────────────────────────┘
 ```
 
@@ -180,7 +185,7 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 | 스킬 | 슬래시 명령어 | 실행하는 서브에이전트 | 실행 전략 |
 |------|-------------|-------------------|---------|
 | `vulchk-codeinspector` | `/vulchk.codeinspector` | 5개 에이전트 | **병렬** — 5개 에이전트 동시 실행 |
-| `vulchk-hacksimulator` | `/vulchk.hacksimulator [url]` | 2개 에이전트 | **순차** — planner → 승인 → executor |
+| `vulchk-hacksimulator` | `/vulchk.hacksimulator [url]` | 7개 에이전트 (planner + 6 executor) | **순차** — planner → 승인 → 전문 executor (multi-pass) |
 
 ### 실행 전략 테이블
 
@@ -193,10 +198,14 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 | codeinspector | container-security-analyzer | sonnet | 병렬 |
 | hacksimulator | attack-planner | sonnet | 순차 1단계 |
 | hacksimulator | (승인 게이트) | — | 순차 2단계 |
-| hacksimulator | attack-executor (auth) | sonnet | 순차 3단계 (Pass 0: pre-auth) |
-| hacksimulator | attack-executor × N | sonnet | 병렬 4단계 (Pass 1: HTTP) |
-| hacksimulator | attack-executor × M | sonnet | 순차 5단계 (Pass 2: 브라우저) |
-| hacksimulator | attack-executor × K | sonnet | 순차 6단계 (Pass 3: 익스플로잇) |
+| hacksimulator | attack-executor-auth | sonnet | 순차 3단계 (Pass 0: pre-auth) |
+| hacksimulator | attack-executor-recon | sonnet | 병렬 4단계 (Pass 1: passive) |
+| hacksimulator | attack-executor-injection | sonnet | 병렬 4단계 (Pass 1: injection) |
+| hacksimulator | attack-executor-auth | sonnet | 병렬 4단계 (Pass 1: app-logic) |
+| hacksimulator | attack-executor-business | sonnet | 병렬 4단계 (Pass 1: business-logic, api) |
+| hacksimulator | attack-executor-baas | sonnet | 조건부 4단계 (Pass 1: BaaS 감지 시) |
+| hacksimulator | (phase별 에이전트) | sonnet | 순차 5단계 (Pass 2: 브라우저) |
+| hacksimulator | attack-executor-exploit | sonnet | 순차 6단계 (Pass 3: aggressive만) |
 
 ### 리포트 정렬 규칙
 
@@ -210,12 +219,25 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 | 에이전트 | 접두사 | 호출 주체 | 모델 | 주요 도구 | 핵심 기능 |
 |---------|--------|---------|------|---------|----------|
 | `vulchk-dependency-auditor` | DEP | codeinspector | sonnet | Bash (curl → OSV API) | Lock 파일 우선 읽기, 전이 의존성 포함 |
-| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | 4단계 CoT 추론 + Source→Sink Taint Analysis, NoSQL injection·Prototype Pollution·Open Redirect·Mass Assignment·Server Actions 탐지 |
-| `vulchk-secrets-scanner` | SEC | codeinspector | haiku | Grep + Glob | .gitignore 검증 (파일 존재 연계), 시크릿 탐지 |
-| `vulchk-git-history-auditor` | GIT | codeinspector | haiku | Bash (git log -p -S) | 커밋 이력에서 시크릿 검색 (15+ 패턴, false positive 필터) |
+| `vulchk-code-pattern-scanner` | CODE | codeinspector | sonnet | Grep + Read | 4단계 CoT 추론 + Taint Analysis (Zod/Pydantic 인식), NoSQL·Prototype Pollution·Mass Assignment 탐지 |
+| `vulchk-secrets-scanner` | SEC | codeinspector | haiku | Grep + Glob | Haiku 최적화 패턴 매칭, .gitignore 검증, 시크릿 탐지 |
+| `vulchk-git-history-auditor` | GIT | codeinspector | haiku | Bash (git log -S) | Haiku 최적화 로그 검색, 커밋 이력 시크릿 탐지 |
 | `vulchk-container-security-analyzer` | CTR | codeinspector | sonnet | Read + Grep | 컨테이너 + CI/CD 파이프라인 보안 |
+
+### 안전 메커니즘 확장 (v2.4)
+
+| 메커니즘 | 설명 |
+|---------|------|
+| **오케스트레이터 429 핸들링** | 스킬(오케스트레이터) 수준에서 sub-agent의 429 에러를 감지하고 전역적으로 cooldown(30s) 및 재시도 조율 |
+| **현대적 Sanitizer 인식** | Zod, Pydantic 등 런타임 검증 라이브러리를 강력한 Sanitizer로 인식하여 오탐(False Positive) 제거 |
+| **Aggressive 경고 강화** | 파괴적 테스트 가능성이 있는 Aggressive 모드에 대해 승인 게이트 시각적 경고 강화 |
 | `vulchk-attack-planner` | — | hacksimulator | sonnet | Bash (curl 정찰) | 비즈니스 로직 분석, 공격 시나리오 설계 |
-| `vulchk-attack-executor` | HSM | hacksimulator | sonnet | Bash (curl 공격) | Stateful 세션 체이닝, CSP 분석, SSTI 탐지, Rate Limiting 검증, 에러 핸들링 가이드, site-analysis.md 재사용 |
+| `vulchk-attack-executor-recon` | HSM | hacksimulator | sonnet | Bash (curl) | passive 정찰: 보안 헤더, CSP, 쿠키, CORS, TLS, 정보 노출 |
+| `vulchk-attack-executor-injection` | HSM | hacksimulator | sonnet | Bash (curl) | 인젝션: XSS, SQLi (multi-DB baseline-delta), SSTI, 커맨드 인젝션, NoSQL |
+| `vulchk-attack-executor-auth` | HSM | hacksimulator | sonnet | Bash (curl) | 인증: 4-Phase 세션 체이닝, JWT, IDOR, CSRF, SSRF, Rate Limiting |
+| `vulchk-attack-executor-business` | HSM | hacksimulator | sonnet | Bash (curl) | 비즈니스 로직: 가격 변조, 매스 할당, 워크플로 우회, GraphQL, API |
+| `vulchk-attack-executor-baas` | HSM | hacksimulator | sonnet | Bash (curl) | BaaS: Supabase RLS/service_role, Firebase 오픈 DB, Elasticsearch 노출 |
+| `vulchk-attack-executor-exploit` | HSM | hacksimulator | sonnet | Bash (curl) | 익스플로잇: SQLi 추출, XSS PoC, SSRF 심층, JWT 위조, 레이스 컨디션 |
 
 ## 데이터 흐름
 

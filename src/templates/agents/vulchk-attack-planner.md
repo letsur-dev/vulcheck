@@ -202,282 +202,88 @@ Compile a list of all discovered:
 ### Step 5: Generate Attack Plan
 
 Based on intensity level and discovered attack surface, generate the plan.
-The plan uses a progressive structure — each intensity includes all phases
-from the previous level plus its own additions.
+Progressive structure — each intensity includes all lower-level phases.
 
-- **Passive** → Base Plan (Phase 1–3)
-- **Active** → Base Plan + Active Additions (Phase 1–6)
-- **Aggressive** → Base Plan + Active Additions + Aggressive Additions (Phase 1–9)
+Write the plan as `## Attack Plan — {title}` with phases as `### Phase N: {name}`.
+Each phase contains `- [ ] {test}` items targeting specific discovered endpoints.
 
-#### Base Plan (All Intensities)
+#### Phase Structure by Intensity
 
-```markdown
-## Attack Plan — {Passive Reconnaissance | Active Vulnerability Probing | Full Penetration Test}
+| Phase | Name | Passive | Active | Aggressive |
+|-------|------|---------|--------|------------|
+| 1 | Information Gathering | Y | Y | Y |
+| 2 | Documentation Review | Y | Y | Y |
+| 3 | Configuration Assessment | Y | Y | Y |
+| 4 | Injection & Input Validation | — | Y | Y |
+| 5 | Authentication & Authorization | — | Y | Y |
+| 6 | Business Logic & API Testing | — | Y | Y |
+| 7 | Exploitation | — | — | Y |
+| 8 | Advanced Attacks | — | — | Y |
+| 9 | Post-Exploitation Verification | — | — | Y |
 
-### Phase 1: Information Gathering
-- [ ] HTTP security header audit
-- [ ] Technology fingerprinting (server, framework, CDN)
-- [ ] Cookie security attribute analysis
-- [ ] TLS/SSL configuration review
-- [ ] robots.txt / sitemap.xml path disclosure review
-- [ ] CORS policy analysis
-- [ ] Error page information leakage check
-- [ ] JavaScript source review for exposed endpoints/keys
+#### Key Items per Phase
 
-### Phase 2: Documentation Review
-- [ ] API documentation discovery (Swagger/OpenAPI)
-- [ ] GraphQL introspection check
-- [ ] Admin panel detection
+- **Phase 1-3** (passive): Header audit, technology fingerprinting, cookie analysis, TLS/SSL, CORS, error page leakage, API docs discovery, CSP evaluation
+- **Phase 4** (active+): XSS probes, SQLi (error/boolean/time-based for MySQL/MSSQL/PostgreSQL/SQLite), command injection, SSTI, NoSQL operator injection ($ne/$regex if MongoDB detected), Supabase checks (if detected: anon key, RLS bypass, service_role key)
+- **Phase 5** (active+): Default credentials, JWT analysis (none algorithm), session management, IDOR, CSRF, HTTP methods, mass assignment, file upload, SSRF, rate limiting
+- **Phase 6** (active+): Price/value manipulation, workflow bypass, role escalation, GraphQL introspection/depth, API versioning bypass. Include test cases from Step 3c.
+- **Phase 7** (aggressive): SQLi extraction (UNION-based), XSS exploitation, SSRF deep probe (169.254.169.254), file upload bypass
+- **Phase 8** (aggressive): JWT brute-force/confusion, race conditions, parameter pollution, HTTP smuggling, chained exploits, business logic exploitation
+- **Phase 9** (aggressive): Verify exploit scope, document chains, assess business impact
 
-### Phase 3: Configuration Assessment
-- [ ] Security header completeness scoring
-- [ ] Cookie configuration assessment
-- [ ] HTTPS enforcement verification
-- [ ] Content-Security-Policy evaluation
-```
+For each phase, list specific endpoints/parameters discovered in Steps 1-4.
+Append: `### Estimated Tests: {count}` and `### Vectors: {list}`.
 
-**If intensity is passive**, stop here and append:
-```markdown
-### Estimated Tests: {count}
-### Vectors: http-fetch only {+ browser if ratatosk available}
-```
-
-#### Active Additions (active + aggressive only)
-
-> Includes all Base Plan phases, plus:
-
-```markdown
-### Phase 4: Injection & Input Validation
-- [ ] XSS reflection probes on: {list discovered input fields}
-- [ ] SQL injection detection on: {list data-accepting endpoints}
-  - Error-based detection (single quote, double quote)
-  - Boolean-based detection (AND 1=1 vs AND 1=2)
-  - Time-based blind detection: MySQL SLEEP(5), MSSQL WAITFOR DELAY, PostgreSQL pg_sleep(5), SQLite RANDOMBLOB
-- [ ] Command injection probes on: {list endpoints accepting system-like params}
-- [ ] SSTI detection on: {list template-rendered inputs}
-- [ ] NoSQL operator injection (if MongoDB/NoSQL detected): $ne/$regex probe on JSON login/search endpoints
-- [ ] Supabase checks (if Supabase detected): anon key exposure, RLS bypass via /rest/v1/, service_role key in source
-
-### Phase 5: Authentication & Authorization
-- [ ] Default credential testing on: {login endpoints}
-- [ ] JWT analysis (if JWT detected):
-  - Algorithm confusion (none algorithm)
-  - Token expiry validation
-  - Claim manipulation
-- [ ] Session management testing:
-  - Session fixation check
-  - Logout completeness
-  - Concurrent session handling
-- [ ] IDOR probes on: {list resource endpoints with IDs}
-- [ ] CSRF token validation on: {list state-changing forms/APIs}
-- [ ] HTTP method tampering on: {list API endpoints}
-- [ ] Mass assignment testing on: {list update endpoints}
-- [ ] File upload boundary testing on: {list upload endpoints}
-- [ ] SSRF probes on: {list URL-accepting parameters}
-- [ ] Rate limiting assessment on: {auth endpoints}
-
-### Phase 6: Business Logic & API Testing
-- [ ] IDOR probes: Access other users' resources by modifying ID parameters
-- [ ] Price/value manipulation: Modify price, quantity, discount in requests
-- [ ] Workflow bypass: Skip required steps, reuse one-time tokens
-- [ ] Role/privilege escalation: Modify role fields in update requests
-- [ ] Rate limit assessment: Test enforcement on critical endpoints
-{include test cases from Step 3c}
-- [ ] GraphQL introspection query (if applicable)
-- [ ] GraphQL query depth/complexity abuse
-- [ ] REST API endpoint enumeration
-- [ ] API versioning bypass (v1 vs v2)
-```
-
-**If intensity is active**, stop here and append:
-```markdown
-### Estimated Tests: {count}
-### Vectors: http-fetch {+ browser if ratatosk available}
-### Safe Payloads: All probes use detection-only payloads
-```
-
-#### Aggressive Additions (aggressive only)
-
-> Includes all Active phases, plus:
-
-```markdown
-⚠ WARNING: Aggressive testing may trigger security monitoring,
-WAF blocks, or rate limiting on the target.
-
-⚠ CAUTION: Aggressive exploitation may cause real data modification,
-deletion, or service disruption. It is STRONGLY RECOMMENDED to run
-aggressive tests only against staging/test environments with dummy data.
-Do NOT run against production systems with real user data unless you
-have explicit written authorization from the system owner.
-
-### Phase 7: Exploitation
-- [ ] SQL injection data extraction (if SQLi confirmed):
-  - UNION-based extraction
-  - Blind extraction (character-by-character)
-  - Database version and schema enumeration
-- [ ] XSS exploitation (if XSS confirmed):
-  - Cookie theft payload
-  - Session hijacking proof-of-concept
-  - DOM manipulation
-- [ ] SSRF exploitation (if SSRF confirmed):
-  - Internal service discovery
-  - Cloud metadata endpoint access (169.254.169.254)
-  - Internal port scanning
-- [ ] File upload exploitation:
-  - Extension bypass (double extension, null byte)
-  - Content-Type mismatch upload
-  - Web shell upload attempt (proof-of-concept only)
-
-### Phase 8: Advanced Attacks
-- [ ] JWT secret brute-force (common secrets list)
-- [ ] JWT RS256-to-HS256 confusion
-- [ ] Race condition testing on: {critical state-changing operations}
-- [ ] Parameter pollution testing
-- [ ] HTTP request smuggling detection
-- [ ] Chained exploit attempts (combining multiple findings)
-- [ ] Privilege escalation through mass assignment
-- [ ] Business logic exploitation:
-  - Price/value manipulation with negative or zero values
-  - Multi-step workflow bypass (skip verification steps)
-  - Concurrent requests for race-condition exploitation on business operations
-
-### Phase 9: Post-Exploitation Verification
-- [ ] Verify data access scope of confirmed exploits
-- [ ] Document full exploit chain
-- [ ] Assess business impact of successful exploits
-
-### Estimated Tests: {count}
-### Vectors: http-fetch + api-probe {+ browser if ratatosk available}
-### Note: Active exploitation attempted on confirmed vulnerabilities
-```
+For aggressive, prepend warning about security monitoring and production data risks.
 
 ### Step 6: Write Persistent Output Files
 
-Write 3 files to the workspace directory. These files persist across runs
-for reuse in incremental mode.
+Write 3 files to the workspace directory (persist across runs for incremental mode).
 
-#### 6a. Write Site Analysis
+#### 6a. Write `{workspace}/site-analysis.md`
 
-Write to `{workspace}/site-analysis.md`:
+Required sections:
+- **Technology Stack**: Server, Framework, Frontend, CDN, Versions
+- **CSS Selectors** (only if ratatosk available): Login forms, Search inputs, File upload
+- **API Structure**: Table — `| Endpoint | Method | Auth Required | Parameters |`
+- **Database Attack Vectors**:
+  - DB Type: SQL (PostgreSQL/MySQL/MSSQL/SQLite) / NoSQL (MongoDB/Redis/Elasticsearch/Firebase) / BaaS (Supabase/Firebase)
+  - Query Patterns, Injection Points, NoSQL Operator Injection endpoints
+  - Supabase (if detected): anon key exposed, service_role key exposed, RLS status, accessible endpoints
+- **Authentication Mechanisms**: Type, Session Handling, Token Location
+- **CORS / Security Headers Summary**
 
+#### 6b. Write `{workspace}/attack-scenarios.md`
+
+Sequential entries AS-001, AS-002, etc. Each entry:
 ```markdown
-# Site Analysis
-
-## Technology Stack
-- **Server**: {web server and version}
-- **Framework**: {backend framework}
-- **Frontend**: {frontend framework}
-- **CDN**: {CDN provider if detected}
-- **Versions**: {detected version numbers}
-
-## CSS Selectors
-*(Only populate if `ratatosk available: yes` — used exclusively for browser automation)*
-- **Login Forms**: {CSS selectors for login forms, or "n/a"}
-- **Search Inputs**: {CSS selectors for search inputs, or "n/a"}
-- **File Upload**: {CSS selectors for upload inputs, or "n/a"}
-
-## API Structure
-| Endpoint | Method | Auth Required | Parameters |
-|----------|--------|---------------|------------|
-{list all discovered API endpoints}
-
-## Database Attack Vectors
-- **DB Type**: {SQL: PostgreSQL | MySQL | MSSQL | SQLite | Oracle} /
-              {NoSQL: MongoDB | Redis | Elasticsearch | Firebase | DynamoDB} /
-              {BaaS: Supabase | Firebase}
-- **Query Patterns**: {parameterized | raw string | ORM | ODM | PostgREST filter}
-- **Injection Points**: {endpoints with user input in queries}
-- **NoSQL Operator Injection**: {endpoints accepting JSON body — $ne/$regex/$where risk}
-- **Supabase** (if detected):
-  - anon key exposed in source: {yes | no}
-  - service_role key exposed: {yes | no} — Critical if yes
-  - RLS status: {enabled | partially | disabled | unknown}
-  - Accessible endpoints: /rest/v1/, /auth/v1/, /storage/v1/
-
-## Authentication Mechanisms
-- **Type**: {cookie-based | JWT | OAuth | session | API key}
-- **Session Handling**: {session management details}
-- **Token Location**: {header | cookie | body}
-
-## CORS / Security Headers Summary
-{summary of CORS policy and security headers}
-```
-
-#### 6b. Write Attack Scenarios
-
-Write to `{workspace}/attack-scenarios.md`:
-
-For each identified attack vector, create a structured scenario entry:
-
-```markdown
-# Attack Scenarios
-
 ### AS-001: {title}
 - **Vector**: {http-fetch | browser | api-probe}
 - **Phase**: {passive | injection | auth | app-logic | business-logic | api | exploitation | advanced | post-exploit}
 - **Target Endpoint**: {METHOD /path}
 - **Parameter**: {parameter name}
 - **Technique**: {specific technique(s)}
-- **Priority**: {1-5, 1=highest} {(from codeinspector CODE-XXX) if applicable}
+- **Priority**: {1-5} {(from codeinspector CODE-XXX) if applicable}
 - **Browser Required**: {yes | no}
-
-### AS-002: {title}
-{...}
 ```
 
-Number scenarios sequentially as AS-001, AS-002, etc.
-Map each scenario to the appropriate phase based on the test type.
+Phase assignment: NoSQL injection → `injection`, Supabase RLS bypass → `injection`.
 
-**Phase assignment guidance for database/BaaS scenarios**:
-- NoSQL injection detection scenarios → `Phase: injection`
-- Supabase RLS bypass scenarios → `Phase: injection`
+#### 6c. Write `{workspace}/attack-plan.md`
 
-#### 6c. Write Attack Plan
-
-Write to `{workspace}/attack-plan.md` the full attack plan content
-(same format as the existing plan templates from Step 5).
+Full attack plan content from Step 5.
 
 #### 6d. Return Summary
 
-After writing all files, return the attack plan in this exact structure:
-
 ```
 ATTACK PLAN GENERATED
-
-## Target Analysis
-
-**URL**: {target_url}
-**Technology Stack**: {detected technologies}
-**Authentication**: {detected auth mechanism}
-**Attack Surface**: {count} endpoints, {count} input fields, {count} API routes
-
-## Reconnaissance Findings
-
-{list key findings from passive recon — security headers, cookies, CORS, etc.}
-
-## Attack Plan — {intensity level}
-
-{full plan content from Step 5}
-
-## Priority Targets (from codeinspector)
-
-{If codeinspector findings available:}
-| Priority | Code Finding | Planned Test |
-|---|---|---|
-| 1 | {finding} | {corresponding attack} |
-| 2 | {finding} | {corresponding attack} |
-{...}
-
-{If no codeinspector findings:}
-No prior code inspection report. Plan based on runtime reconnaissance.
-
-## Persistent Files Written
-
-- `{workspace}/site-analysis.md` — Site reconnaissance data
-- `{workspace}/attack-scenarios.md` — {count} attack scenarios (AS-001 to AS-{NNN})
-- `{workspace}/attack-plan.md` — Approved attack plan
-
-ATTACK PLAN GENERATION COMPLETE: {endpoint_count} endpoints mapped, {test_count} tests planned
+Target: {url} | Stack: {technologies} | Auth: {mechanism}
+Attack Surface: {endpoints} endpoints, {inputs} input fields, {api_routes} API routes
+Recon Findings: {key findings summary}
+Plan: {intensity} — {phase_count} phases, {test_count} tests planned
+{If codeinspector}: Priority targets from code inspection: {count}
+Files: site-analysis.md, attack-scenarios.md (AS-001..AS-{NNN}), attack-plan.md
+ATTACK PLAN GENERATION COMPLETE
 ```
 
 ## Important Notes

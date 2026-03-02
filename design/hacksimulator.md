@@ -425,23 +425,34 @@ CVE나 OWASP 패턴으로 탐지 불가능한 설계 오류를 테스트한다:
 
 ---
 
-## 서브에이전트: Attack Executor
+## 서브에이전트: Attack Executor (6분할 구조)
 
-**파일**: `vulchk-attack-executor.md`
+기존 단일 `vulchk-attack-executor.md` (25.7KB)를 6개 전문 에이전트로 분할.
+각 실행에서 해당 phase의 에이전트만 로드되어 평균 로드 ~5KB로 감소.
+
+| 에이전트 | 파일 | 담당 Phase | 크기 |
+|---------|------|-----------|------|
+| attack-executor-recon | `vulchk-attack-executor-recon.md` | passive | ~5.7KB |
+| attack-executor-injection | `vulchk-attack-executor-injection.md` | injection | ~6.3KB |
+| attack-executor-auth | `vulchk-attack-executor-auth.md` | auth, app-logic | ~6.6KB |
+| attack-executor-business | `vulchk-attack-executor-business.md` | business-logic, api | ~4.8KB |
+| attack-executor-baas | `vulchk-attack-executor-baas.md` | BaaS 플랫폼 (조건부) | ~7.1KB |
+| attack-executor-exploit | `vulchk-attack-executor-exploit.md` | exploitation, advanced, post-exploit | ~5.1KB |
+
+**공통**: 모든 에이전트가 HSM-{NNN} 접두사, 동일 결과 형식, 동일 에러 핸들링 사용.
 **발견 사항 접두사**: `HSM-{NNN}`
-**호출 시점**: hacksimulator SKILL.md Step 8 (계획 승인 후)
 **모델**: sonnet
-**주요 도구**: Bash (curl로 공격 수행), Write (결과 파일 쓰기)
+**주요 도구**: Bash (curl), Write (결과 파일)
 
-### 입력 파라미터 (v2 추가)
+### 입력 파라미터
 
 | 파라미터 | 설명 |
 |---------|------|
-| `phase` | 실행할 단계 (passive, injection, auth, app-logic, business-logic, api, exploitation, advanced, post-exploit) |
+| `phase` | 실행할 단계 |
 | `workspace` | `.vulchk/hacksim/` 경로 |
 | `scenarios_filter` | (선택) 실행할 AS-{NNN} ID 목록 (증분 모드) |
 
-**컨텍스트 최소화**: executor는 전체 attack-plan.md를 프롬프트에 인라인으로 받지 않고, 파일에서 자신의 phase에 해당하는 섹션만 읽어서 실행한다.
+**컨텍스트 최소화**: 각 전문 에이전트는 자신의 담당 phase 테스트만 포함하여, 실행 시 불필요한 컨텍스트 로드를 제거한다.
 
 ### 알고리즘
 
@@ -467,17 +478,17 @@ flowchart TD
 
 ### 단계 매핑
 
-| 단계 번호 | 단계 이름 | 테스트 내용 | Pass |
-|----------|---------|-----------|------|
-| 0 | auth | 인증 테스트, JWT 분석, 세션 관리, 세션 토큰 획득 | **Pass 0 (pre-auth, 순차)** |
-| 1 | passive | 보안 헤더, 쿠키, CORS, 정보 노출, TLS, 에러 페이지, site-analysis.md 재사용 | Pass 1 (HTTP 병렬) |
-| 2 | injection | XSS, SQLi(다중 DB), CSRF, **SSTI**, 커맨드 인젝션, **NoSQL 인젝션**, **Supabase 검사**, **Rate Limiting 검증** | Pass 1 (HTTP 병렬) |
-| 3 | app-logic | CSRF 검증, HTTP 메서드, 매스 할당, 파일 업로드, SSRF | Pass 1 (HTTP 병렬) |
-| 4 | business-logic | IDOR, 가격 변조, 워크플로 우회, 권한 상승 | Pass 1 (HTTP 병렬) |
-| 5 | api | GraphQL, REST API 열거, API 버전 우회 | Pass 1 (HTTP 병렬) |
-| 7 | exploitation | SQLi 추출, XSS 익스플로잇, SSRF 심층, 커맨드 인젝션 | Pass 3 (순차, aggressive) |
-| 8 | advanced | JWT 크래킹, 레이스 컨디션, 파라미터 오염, HTTP 스머글링 | Pass 3 (순차, aggressive) |
-| 9 | post-exploit | 데이터 접근 범위 확인, 익스플로잇 체인 문서화, 영향 평가 | Pass 3 (순차, aggressive) |
+| 단계 번호 | 단계 이름 | 에이전트 | 테스트 내용 | Pass |
+|----------|---------|---------|-----------|------|
+| 0 | auth | executor-auth | 인증 테스트, JWT 분석, 세션 관리, 세션 토큰 획득 | **Pass 0 (pre-auth, 순차)** |
+| 1 | passive | executor-recon | 보안 헤더, 쿠키, CORS, 정보 노출, TLS, 에러 페이지 | Pass 1 (HTTP 병렬) |
+| 2 | injection | executor-injection (+executor-baas 조건부) | XSS, SQLi(다중 DB), SSTI, 커맨드 인젝션, NoSQL 인젝션 | Pass 1 (HTTP 병렬) |
+| 3 | app-logic | executor-auth | CSRF 검증, HTTP 메서드, 파일 업로드, SSRF | Pass 1 (HTTP 병렬) |
+| 4 | business-logic | executor-business | 가격 변조, 워크플로 우회, 권한 상승 | Pass 1 (HTTP 병렬) |
+| 5 | api | executor-business | GraphQL, REST API 열거, API 버전 우회 | Pass 1 (HTTP 병렬) |
+| 7 | exploitation | executor-exploit | SQLi 추출, XSS 익스플로잇, SSRF 심층, 커맨드 인젝션 | Pass 3 (순차, aggressive) |
+| 8 | advanced | executor-exploit | JWT 크래킹, 레이스 컨디션, 파라미터 오염, HTTP 스머글링 | Pass 3 (순차, aggressive) |
+| 9 | post-exploit | executor-exploit | 데이터 접근 범위 확인, 익스플로잇 체인 문서화, 영향 평가 | Pass 3 (순차, aggressive) |
 
 ### Methodology 추적
 
@@ -543,8 +554,9 @@ attack-executor는 **모든 HTTP 응답**에서 다음 토큰을 명시적으로
 | 메커니즘 | 설명 |
 |---------|------|
 | Stateful 세션 관리 | 워크스페이스 내 쿠키/JWT 파일 관리, 병렬 격리 |
+| **Orchestrator 429 Handling** | sub-agent의 429 응답 감지 시 전체 태스크 일시 정지(30s) 후 빈도 조절 지시와 함께 재개 |
+| **Aggressive Warning** | 파괴적 공격 시나리오(Race Condition 등)에 대해 승인 단계에서 명시적 시각적 경고 제공 |
 | CSP 품질 분석 | 단순 존재 여부가 아닌 `unsafe-inline`, `unsafe-eval`, 와일드카드 검사 |
-| Rate limiting 감지 | 429 응답 시 일시 중지, 로그에 기록 |
 | WAF 감지 | 프로브에 403 응답 시 WAF 제품 식별 |
 | 비파괴적 페이로드 | 접근 가능성만 증명, 실제 사용자 데이터 추출 안 함 |
 | 마스킹 | 발견된 모든 자격 증명은 마스킹 처리 |
@@ -554,17 +566,16 @@ attack-executor는 **모든 HTTP 응답**에서 다음 토큰을 명시적으로
 | Aggressive 경고 강화 | 실 데이터 삭제/서비스 중단 가능성 경고, 스테이징 환경 권장 |
 | 워크스페이스 영속 | 테스트 후 워크스페이스 유지 (증분 모드용) |
 
-### v2.1 신규 탐지 단계
+### 전문 에이전트별 탐지 기능
 
-| 단계 | 내용 |
-|------|------|
-| **3b 확장** (Multi-DB SQLi) | 실행 전 기준 레이턴시(BASELINE) 측정 후 delta 기반 비교. MySQL `SLEEP(5)`, MSSQL `WAITFOR DELAY %270%3A0%3A5%27` (URL 인코딩), PostgreSQL `pg_sleep(5)` 단일 스테이트먼트 형태, SQLite `RANDOMBLOB(5MB)`. `(ELAPSED - BASELINE) ≥ 5`이면 `CONFIRMED:` 출력 |
-| **3l** (NoSQL 인젝션) | MongoDB: baseline 실패 응답 확인 후 `$ne` operator로 인증 우회 탐지; bypass 성공 시 획득 토큰 미사용. GET 파라미터는 `%24ne`/`%24regex` (셸 `$` 해석 방지). Elasticsearch: primary 도메인 + `:9200` 직접 포트 + `/es/`, `/search/` 경로 변형 탐지. Firebase: `.vulchkprobe.json` (존재하지 않는 경로)에 HTTP 상태 코드만 확인하여 실제 데이터 비노출 |
-| **3m** (Supabase 검사) | **단일 bash 블록** — `SUPABASE_DETECTED=false` 선언부터 `if [ "$SUPABASE_DETECTED" = "true" ]` 검사까지 같은 블록 (변수 소멸 방지). anon key는 변수명 컨텍스트 우선 추출, 실패 시 JWT 패턴으로 폴백 + 수동 확인 권고. service_role JWT는 base64 디코딩으로 `"role":"service_role"` role claim 검증 후 Critical 판정. RLS 검사는 HTTP 상태 + 응답 바디(`[{` 패턴) 동시 확인으로 빈 테이블과 RLS 적용 구분. 스토리지 버킷 열거는 anon key 있을 때만 실행 |
-| **3n** (SSTI) | Jinja2/Twig/EJS/Pug 등 엔진별 프로브 (`{{7*7}}`, `${7*7}`, `<%= 7*7 %>`, `#{7*7}`). 응답에 `49`(계산 결과)가 포함되면 CONFIRMED. CRITICAL — RCE로 이어질 수 있음 |
-| **3o** (Rate Limiting 검증) | 로그인/민감 API 엔드포인트에 20회 연속 요청, 429 응답 여부 확인. 요청 간 100ms 간격으로 DoS 오인 방지. 로그인: HIGH, 일반 API: MEDIUM |
+| 에이전트 | 탐지 기능 |
+|---------|----------|
+| **executor-injection** | Multi-DB SQLi (baseline-delta: MySQL SLEEP, MSSQL WAITFOR, PostgreSQL pg_sleep, SQLite RANDOMBLOB), NoSQL `$ne`/`%24regex` 인젝션, SSTI (엔진별 프로브, `49` 결과 탐지), Command Injection |
+| **executor-baas** (조건부) | Supabase: anon key 컨텍스트 추출, service_role JWT role claim 검증, RLS 체크 (`[]` vs `[{...}]`), 스토리지 버킷. Firebase: `.vulchkprobe.json` probe. Elasticsearch: primary + `:9200` + 경로 변형 |
+| **executor-auth** | 4-Phase 세션 체이닝, JWT none algorithm, IDOR, CSRF, SSRF, Rate Limiting (20회, 100ms 간격) |
+| **executor-recon** | CSP 품질 분석 (unsafe-inline/eval/wildcard), 보안 헤더 감사, 쿠키 속성, CORS, TLS, 에러 페이지 |
 
-**심각도 기준 (3m)**:
+**Supabase 심각도 기준 (executor-baas)**:
 - `service_role` JWT with verified role claim 소스 노출 → **Critical**
 - anon key로 `/rest/v1/{table}` HTTP 200 + row data → **High** (RLS 미설정)
 - 스토리지 공개 버킷 → **Medium~High**

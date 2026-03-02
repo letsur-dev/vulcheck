@@ -147,44 +147,11 @@ Present the intensity selection:
 ```
 ## Scan Intensity
 
-Select the intensity level for this penetration test:
-
-### 1. Passive (Reconnaissance Only)
-- HTTP header fingerprinting
-- Security header audit
-- Cookie attribute analysis
-- robots.txt / sitemap.xml inspection
-- CORS policy analysis
-- TLS/SSL configuration check
-- Technology fingerprinting
-- JavaScript source review
-No payloads are sent to the target.
-
-### 2. Active (Vulnerability Probing)
-Everything in Passive, plus:
-- XSS reflection probes
-- SQL injection detection (error/boolean/time-based)
-- CSRF token validation testing
-- IDOR endpoint testing
-- Authentication bypass attempts
-- SSRF detection
-- File upload boundary testing
-- Session management testing
-- API security testing (GraphQL introspection, mass assignment)
-Safe test payloads are sent but no exploitation is attempted.
-
-### 3. Aggressive (Full Penetration)
-Everything in Active, plus:
-- Full SQL injection extraction
-- XSS exploitation payloads
-- Command injection probing
-- SSTI detection and exploitation
-- JWT cracking and forgery
-- SSRF internal network probing
-- File upload bypass for code execution
-- Race condition testing
-- Chained exploit attempts
-Active exploitation is attempted on confirmed vulnerabilities.
+| # | Level | Description |
+|---|-------|-------------|
+| 1 | Passive | Reconnaissance only — headers, cookies, CORS, TLS, fingerprinting. No payloads sent. |
+| 2 | Active | Passive + injection probes (XSS, SQLi, SSTI), auth testing, IDOR, CSRF, SSRF, API security. Safe payloads only. |
+| 3 | Aggressive | Active + full exploitation of confirmed vulns, command injection, JWT forgery, race conditions. |
 
 Select intensity (1/2/3):
 ```
@@ -308,12 +275,17 @@ If user answers "no": stop execution — results are up to date.
 
 ### Execution Strategy
 
-| Agent | Model | Order | Reason |
-|-------|-------|-------|--------|
-| vulchk-attack-planner | sonnet | 1st | Strategic planning, business logic analysis |
-| vulchk-attack-executor | sonnet | 2nd (after approval) | Session chaining, response interpretation |
+| Agent | Model | Phases | Order |
+|-------|-------|--------|-------|
+| vulchk-attack-planner | sonnet | planning | 1st |
+| vulchk-attack-executor-auth | sonnet | auth, app-logic | Pass 0 (pre-auth) + Pass 1 |
+| vulchk-attack-executor-recon | sonnet | passive | Pass 1 (parallel) |
+| vulchk-attack-executor-injection | sonnet | injection | Pass 1 (parallel) |
+| vulchk-attack-executor-business | sonnet | business-logic, api | Pass 1 (parallel) |
+| vulchk-attack-executor-baas | sonnet | injection (BaaS) | Pass 1 (conditional) |
+| vulchk-attack-executor-exploit | sonnet | exploitation, advanced, post-exploit | Pass 3 (aggressive only) |
 
-**These agents MUST run sequentially**: planner → user approval → executor.
+**Flow**: planner → user approval → executor agents (multi-pass).
 
 Launch the attack planner sub-agent using the Task tool:
 
@@ -363,13 +335,25 @@ Display the attack plan returned by the planner agent:
 
 ---
 
-⚠ Review this plan carefully before approving.
-All approved tests will be logged with timestamps and payloads.
+{If Aggressive}: ⚠ WARNING: AGGRESSIVE MODE ENABLED
+{If Aggressive}: This mode includes active exploitation attempts and race condition tests.
+{If Aggressive}: It may cause temporary service instability, data exhaustion, or trigger
+{If Aggressive}: security alerts. Use only on STAGING or AUTHORIZED environments.
 
 **Approve this attack plan? (yes/no)**
 ```
 
-Wait for explicit user approval. If "no":
+## Step 8: Launch Attack Executor — Multi-Pass Model
+
+### Error Handling & Rate Limiting (Orchestrator Level)
+
+As the orchestrator, you must monitor sub-agent outputs for **HTTP 429 (Too Many Requests)**.
+If any agent reports a 429 error:
+1. **Pause** all other active tasks in that pass.
+2. **Wait** 30 seconds (cooldown).
+3. **Resume** tasks with a directive to "Reduce request frequency".
+4. If 429 persists, downgrade the intensity or abort the phase.
+
 ```
 Attack plan rejected. You can:
 1. Adjust the intensity level and try again
@@ -381,168 +365,109 @@ Stop execution if rejected.
 ## Step 8: Launch Attack Executor — Multi-Pass Model
 
 After plan approval, execute the attack plan using a phase-based Multi-Pass Model.
-Instead of a single monolithic executor call, launch multiple executor instances
-organized by phase type.
+Launch specialized executor agents organized by phase type.
 
 For incremental mode: Only launch phases that have affected scenarios (from `scenarios_filter` in Step 5c).
 
-### Pass 0 — Pre-auth phase (sequential)
+### Agent Routing Table
 
-Run the `auth` phase first to acquire session tokens before any other phase
-starts. This ensures that injection, app-logic, and other phases can use
-authenticated sessions.
+Each phase maps to a specialized agent:
+
+| Phase | Agent | Pass |
+|-------|-------|------|
+| auth | vulchk-attack-executor-auth | Pass 0 |
+| passive | vulchk-attack-executor-recon | Pass 1 |
+| injection | vulchk-attack-executor-injection | Pass 1 |
+| app-logic | vulchk-attack-executor-auth | Pass 1 |
+| business-logic | vulchk-attack-executor-business | Pass 1 |
+| api | vulchk-attack-executor-business | Pass 1 |
+| (BaaS detected) | vulchk-attack-executor-baas | Pass 1 |
+| (browser phases) | same as HTTP agent + ratatosk flag | Pass 2 |
+| exploitation, advanced, post-exploit | vulchk-attack-executor-exploit | Pass 3 |
+
+### Common Prompt Template
+
+All executor agents receive the same base prompt structure:
 
 ```
-Agent: vulchk-attack-executor
-Prompt: "Execute phase 'auth' of the approved attack plan:
+Agent: {agent_name from routing table}
+Prompt: "Execute phase '{phase}' of the approved attack plan:
 
 Target URL: {url}
-Intensity: {passive|active|aggressive}
-Phase: auth
+Intensity: {intensity}
+Phase: {phase}
 Workspace: .vulchk/hacksim/
-ratatosk available: no (HTTP-only pass)
-{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs for auth phase from Step 5c}
+ratatosk available: {yes|no}
+{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs for this phase}
 
 Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
 Read site analysis from .vulchk/hacksim/site-analysis.md
-Write results to .vulchk/hacksim/phases/phase-0-auth.md
+Use session state from .vulchk/hacksim/cookies.txt and/or .vulchk/hacksim/jwt.txt
+Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
 
-Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: 'auth'.
-Do not read or execute sections for other phases.
-
-Acquire session tokens and store them in .vulchk/hacksim/cookies.txt and/or .vulchk/hacksim/jwt.txt.
+Read .vulchk/hacksim/attack-plan.md and execute ONLY the '{phase}' section.
 Log every attempt and return findings following your instructions."
 ```
 
-Wait for Pass 0 to complete before proceeding. Verify session files were created:
+### Pass 0 — Pre-auth phase (sequential)
+
+Launch `vulchk-attack-executor-auth` with `Phase: auth` to acquire session tokens.
+Add to prompt: "Acquire session tokens and store in .vulchk/hacksim/cookies.txt and/or .vulchk/hacksim/jwt.txt."
+
+Wait for Pass 0 to complete. Verify session files:
 ```bash
 ls -la .vulchk/hacksim/cookies.txt .vulchk/hacksim/jwt.txt 2>/dev/null
 ```
 
 ### Pass 1 — HTTP-only phases (parallel)
 
-Send **one message** with **multiple Task tool calls simultaneously** — do NOT
-send them in separate messages. Each call launches one executor instance for
-one phase. Only include phases that have scenarios in `attack-scenarios.md`
-(or all phases if `scenarios_filter` is not set).
+Send **one message** with **multiple Task tool calls simultaneously**.
+Only include phases with scenarios in `attack-scenarios.md`.
 
-The 5 phases are: `passive`, `injection`, `app-logic`, `business-logic`, `api`.
+Launch these in parallel using the routing table:
+- `passive` → vulchk-attack-executor-recon
+- `injection` → vulchk-attack-executor-injection
+- `app-logic` → vulchk-attack-executor-auth
+- `business-logic` → vulchk-attack-executor-business
+- `api` → vulchk-attack-executor-business
 
-Each phase reads the shared session state acquired in Pass 0.
+#### BaaS Detection (conditional)
 
-For each phase, use this prompt:
+Read `site-analysis.md` DB Type field. If it contains `Supabase`, `Firebase`,
+or `Elasticsearch`, **also** launch `vulchk-attack-executor-baas` in parallel
+with the other Pass 1 agents. Add to prompt: "Detected platforms: {platform list}".
 
+Wait for ALL Pass 1 Task calls to complete.
+
+Merge cookie jars:
+```bash
+for f in .vulchk/hacksim/cookies-*.txt; do
+  [ -f "$f" ] && cat "$f" >> .vulchk/hacksim/cookies.txt
+done
+sort -u -o .vulchk/hacksim/cookies.txt .vulchk/hacksim/cookies.txt
 ```
-Agent: vulchk-attack-executor
-Prompt: "Execute phase '{phase}' of the approved attack plan:
-
-Target URL: {url}
-Intensity: {passive|active|aggressive}
-Phase: {phase}
-Workspace: .vulchk/hacksim/
-ratatosk available: no (HTTP-only pass)
-{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs for this phase from Step 5c}
-
-Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
-Read site analysis from .vulchk/hacksim/site-analysis.md
-Use session state from .vulchk/hacksim/cookies.txt and/or .vulchk/hacksim/jwt.txt (acquired in Pass 0)
-Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
-
-Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: '{phase}'.
-Do not read or execute sections for other phases.
-
-Execute only the tests for the '{phase}' phase.
-Log every attempt and return findings following your instructions."
-```
-
-Wait for ALL Pass 1 Task calls to complete before proceeding.
-
-After all HTTP phases complete:
-- Merge cookie jars (union of all discovered cookies/tokens from Pass 0 and Pass 1):
-  ```bash
-  # Merge all phase-specific cookie jars into the main one
-  for f in .vulchk/hacksim/cookies-*.txt; do
-    [ -f "$f" ] && cat "$f" >> .vulchk/hacksim/cookies.txt
-  done
-  sort -u -o .vulchk/hacksim/cookies.txt .vulchk/hacksim/cookies.txt
-  ```
 
 ### Pass 2 — Browser phases (sequential)
 
-Only if `RATATOSK_AVAILABLE` is true. Run browser-dependent tests sequentially,
-using the merged session state from Pass 0 and Pass 1.
+Only if `RATATOSK_AVAILABLE` is true. Check which phases have `Browser Required: yes`
+scenarios. Launch the **same agent from the routing table** but with
+`ratatosk available: yes` and write to `phase-{N}-{phase}-browser.md`.
+Add: "Execute ONLY scenarios with 'Browser Required: yes'."
 
-Check which phases have `Browser Required: yes` scenarios in `attack-scenarios.md`.
-Run those phases one at a time, waiting for each to complete before starting the next.
-
-For each browser phase, use this prompt:
-
-```
-Agent: vulchk-attack-executor
-Prompt: "Execute browser-based tests for phase '{phase}':
-
-Target URL: {url}
-Intensity: {passive|active|aggressive}
-Phase: {phase}
-Workspace: .vulchk/hacksim/
-ratatosk available: yes
-{If incremental}: Scenarios filter: {comma-separated AS-NNN IDs with 'Browser Required: yes' for this phase}
-
-Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
-Read site analysis from .vulchk/hacksim/site-analysis.md
-Write results to .vulchk/hacksim/phases/phase-{N}-{phase}-browser.md
-
-Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: '{phase}'.
-Do not read or execute sections for other phases.
-
-Execute ONLY scenarios with 'Browser Required: yes'.
-Use the merged session state from .vulchk/hacksim/cookies.txt.
-Log every attempt and return findings following your instructions."
-```
-
-**Pass 2 phases run sequentially** (one at a time, waiting for each to complete).
+**Pass 2 phases run sequentially** (one at a time).
 
 ### Pass 3 — Exploitation phases (sequential, aggressive only)
 
-Only for `aggressive` intensity. These phases depend on confirmed findings from
-Pass 0/1/2 and run sequentially.
-
-Before launching each phase, read the Pass 0/1/2 result files to identify confirmed
-vulnerabilities:
+Only for `aggressive` intensity. Read Pass 0/1/2 results to find confirmed vulnerabilities:
 ```bash
 ls .vulchk/hacksim/phases/phase-*.md 2>/dev/null
 ```
 
-Extract confirmed findings (those where the result was "Confirmed" or equivalent).
-Pass these as the exploitation targets in the prompt.
+For each phase in `[exploitation, advanced, post-exploit]`, launch
+`vulchk-attack-executor-exploit`. Add to prompt:
+"Confirmed vulnerabilities to exploit: {list of HSM-{NNN} findings from earlier phases}."
 
-For each phase in `[exploitation, advanced, post-exploit]`, use this prompt:
-
-```
-Agent: vulchk-attack-executor
-Prompt: "Execute exploitation phase '{phase}':
-
-Target URL: {url}
-Intensity: aggressive
-Phase: {phase}
-Workspace: .vulchk/hacksim/
-ratatosk available: {yes|no}
-
-Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
-Read site analysis from .vulchk/hacksim/site-analysis.md
-Write results to .vulchk/hacksim/phases/phase-{N}-{phase}.md
-
-Confirmed vulnerabilities to exploit (from earlier phases):
-{list of HSM-{NNN} findings with severity, endpoint, and technique confirmed in Pass 0/1/2}
-
-Read the file .vulchk/hacksim/attack-plan.md and execute ONLY the section relevant to your assigned phase: '{phase}'.
-Do not read or execute sections for other phases.
-
-Exploit ONLY the confirmed vulnerabilities listed above.
-Log every attempt and return findings following your instructions."
-```
-
-**Pass 3 phases run sequentially** because each phase may depend on findings from the previous.
+**Pass 3 phases run sequentially** because each may depend on previous findings.
 
 ## Step 9: Generate Report
 
@@ -600,120 +525,24 @@ Use these severity labels in all languages. The English label always appears fir
 
 ### Report Structure
 
-Use the language reference above to translate all section headers and
-labels. The template below shows the English structure — replace each
-heading and label with the corresponding translation from the table.
+Translate all section headers using the language reference above.
 
-```markdown
-# {Penetration Test Report}
+**Required sections** (in order):
 
-**{Date}**: {YYYY-MM-DD HH:mm:ss}
-**{Target}**: {URL}
-**{Intensity}**: {passive | active | aggressive}
-**VulChk Version**: {from .vulchk/config.json}
-**ratatosk-cli**: {available | not available}
+1. **Header**: Title, Date, Target, Intensity, VulChk Version, ratatosk-cli status
+2. **{Executive Summary}**: Finding counts by severity + 2-3 sentence summary
+3. **{Attack Plan Summary}**: Intensity, basis (codeinspector/recon), brief phase description
+4. **{Findings Summary}**: Table — `| # | {Severity} | {Vector} | {Endpoint} | {Description} |` sorted by severity
+5. **{Detailed Findings}**: For each finding: Severity, Vector, Endpoint, Request (http block), Response, Evidence, References (CWE/OWASP), Remediation
+6. **{Attack Log}**: Table — `| # | {Timestamp} | {Vector} | {Endpoint} | {Payload} | {Status} | {Result} |` chronological
+7. **{Methodology}**:
+   - {Execution Summary}: Table — `| # | {Phase} | {Duration} | {Tests} | {Findings} | {Vector} |` from methodology JSONs
+   - {Attack Scenario Coverage}: Table — `| AS-# | {Scenario} | {Phase} | {Result} | {Finding} |`
+   - {Tools Used}: curl + ratatosk (if available)
+8. **{Coverage Notes}**: {Tests Performed}, {Tests Skipped}, {Limitations}
+9. **{Recommendations}**: Top 3-5 prioritized recommendations
 
-## {Executive Summary}
-
-{total_findings} {security findings identified}:
-- **Critical**: {count} — {Immediate action required}
-- **High**: {count} — {Address in next sprint}
-- **Medium**: {count} — {Plan remediation}
-- **Low**: {count} — {Consider addressing}
-- **Informational**: {count} — {For awareness}
-
-{2-3 sentence summary in report language}
-
-## {Attack Plan Summary}
-
-**{Intensity}**: {level}
-**{Based on}**: {{codeinspector report} / {runtime reconnaissance}}
-
-{brief description of the approved attack plan phases, in report language}
-
-## {Findings Summary}
-
-| # | {Severity} | {Vector} | {Endpoint} | {Description} |
-|---|----------|--------|----------|-------------|
-{one row per finding, sorted by severity}
-
-## {Detailed Findings}
-
-{For each finding:}
-
-### {N}. {title}
-
-- **{Severity}**: Critical | High | Medium | Low | Informational
-- **{Vector}**: browser | http-fetch | api-probe
-- **{Endpoint}**: {URL/path}
-- **{Request}**:
-  ```http
-  {method} {path} HTTP/1.1
-  {relevant headers}
-
-  {payload body if applicable}
-  ```
-- **{Response}**:
-  ```
-  {status code and relevant response data}
-  ```
-- **{Evidence}**: {description, in report language}
-- **{References}**: CWE-{XXX}, OWASP A{XX}:2021
-- **{Remediation}**: {actionable fix steps, in report language}
-
-## {Attack Log}
-
-| # | {Timestamp} | {Vector} | {Endpoint} | {Payload} | {Status} | {Result} |
-|---|-----------|--------|----------|---------|--------|--------|
-{complete log of every test attempt, sorted chronologically}
-
-## {Methodology}
-
-### {Execution Summary}
-
-| # | {Phase} | {Duration} | {Tests} | {Findings} | {Vector} |
-|---|---------|-----------|---------|------------|---------|
-{one row per phase from methodology.json, e.g.:}
-| 1 | Passive | 2m 30s | 15 | 3 | http-fetch |
-| 2 | Injection | 1m 45s | 22 | 1 | http-fetch |
-{...}
-
-**{Total Duration}**: {sum of all phase durations}
-**{Parallelization}**: Pass 0 (auth pre-pass), Pass 1 ({N} phases parallel), Pass 2 ({M} browser sequential)
-
-### {Attack Scenario Coverage}
-
-| AS-# | {Scenario} | {Phase} | {Result} | {Finding} |
-|------|-----------|---------|----------|-----------|
-{one row per scenario from attack-scenarios.md, with result and linked finding:}
-| AS-001 | SQLi on /api/users | injection | Confirmed | HSM-001 |
-| AS-002 | XSS on search | injection | Not vulnerable | — |
-{...}
-
-### {Tools Used}
-- curl (HTTP requests)
-{if ratatosk available:}
-- ratatosk-cli (browser automation)
-{additional detected technology-specific tools}
-
-## {Coverage Notes}
-
-### {Tests Performed}
-{list of test categories that were executed, in report language}
-
-### {Tests Skipped}
-{list of tests skipped and why, in report language}
-
-### {Limitations}
-{limitations encountered, in report language}
-
-## {Recommendations}
-
-{Top 3-5 prioritized recommendations, in report language}
-
----
-*{Generated by VulChk Hack Simulator}*
-```
+Footer: `*{Generated by VulChk Hack Simulator}*`
 
 ## Step 10: Finalize Session and Present Summary
 

@@ -126,7 +126,7 @@ describe('file-ops', () => {
   });
 
   describe('copyAgents', () => {
-    it('copies all 7 agent templates to .claude/agents/', () => {
+    it('copies all 12 agent templates to .claude/agents/', () => {
       copyAgents(TEST_DIR);
 
       const agentDir = join(TEST_DIR, '.claude', 'agents');
@@ -139,7 +139,12 @@ describe('file-ops', () => {
         'vulchk-git-history-auditor.md',
         'vulchk-container-security-analyzer.md',
         'vulchk-attack-planner.md',
-        'vulchk-attack-executor.md',
+        'vulchk-attack-executor-recon.md',
+        'vulchk-attack-executor-injection.md',
+        'vulchk-attack-executor-auth.md',
+        'vulchk-attack-executor-business.md',
+        'vulchk-attack-executor-baas.md',
+        'vulchk-attack-executor-exploit.md',
       ];
 
       for (const agent of expectedAgents) {
@@ -193,7 +198,7 @@ describe('file-ops', () => {
       // Agents
       const agentDir = join(TEST_DIR, '.claude', 'agents');
       const agents = fse.readdirSync(agentDir).filter((f) => f.startsWith('vulchk-'));
-      expect(agents.length).toBe(7);
+      expect(agents.length).toBe(12);
 
       // Initialized
       expect(isInitialized(TEST_DIR)).toBe(true);
