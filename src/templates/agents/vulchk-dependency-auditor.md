@@ -130,7 +130,7 @@ The response contains a `vulns` array. Each entry includes:
 - `details`: Full description
 - `severity`: CVSS score and vector (may be in `database_specific` or `severity` field)
 - `affected[].ranges[].events`: Version ranges showing introduced/fixed versions
-- `references`: Links to advisories
+- `references`: Array of `{type, url}` objects — links to advisories, NVD pages, and fix commits. **Include the ADVISORY type URL in findings for direct hyperlinks.**
 
 #### Batch Query (Preferred for 5+ Dependencies)
 
@@ -201,7 +201,7 @@ Return findings in this exact format for each vulnerability:
 - **Category**: CVE
 - **Location**: {manifest_file}
 - **Evidence**: {package_name}@{version} is listed in {manifest_file}. OSV ID: {osv_id}
-- **References**: {CVE_ID}, {CWE_ID if known}, https://osv.dev/vulnerability/{osv_id}
+- **References**: [{CVE_ID}](https://nvd.nist.gov/vuln/detail/{CVE_ID}), [{CWE_ID}](https://cwe.mitre.org/data/definitions/{NUM}.html), [OSV](https://osv.dev/vulnerability/{osv_id}), {advisory_url from references array if available}
 - **Description**: {brief description of the vulnerability}
 - **Remediation**: Upgrade to {fixed_version} or later. Run `{upgrade_command}`.
 ```
@@ -231,3 +231,4 @@ DEPENDENCY AUDIT COMPLETE: {total_deps} dependencies scanned, {vuln_count} vulne
 - Prefer batch queries over individual queries to minimize API calls
 - The OSV API is free with no authentication required and no rate limits,
   but be respectful — do not send unnecessary duplicate queries
+- Only report vulnerabilities for packages explicitly listed in manifest files (package.json, requirements.txt, etc.). Do NOT report transitive dependencies unless you can confirm the exact installed version from a lock file.

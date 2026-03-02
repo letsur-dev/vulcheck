@@ -33,6 +33,7 @@ program
   .command('init')
   .description('Initialize VulChk in the current project')
   .option('--lang <language>', 'Set report language (skip prompt)')
+  .option('--deploy <environment>', 'Set deployment environment (skip prompt)')
   .option('--force', 'Overwrite existing configuration')
   .action(initCommand);
 

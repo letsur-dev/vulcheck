@@ -158,12 +158,14 @@ deserialize|unpickle|unserialize    # Deserialization functions
 yaml\.load\s*\(                     # Python YAML load (unsafe by default)
 ```
 
-#### A09: Logging Failures (CWE-778)
+#### A09: Logging Failures (CWE-778) — Informational only
 
 Check if logging/monitoring exists:
 - Look for logging library imports (winston, pino, morgan, logging, loguru)
 - Check if error handlers log errors
 - Check if auth events are logged
+
+**Severity**: Always **Informational** — logging insufficiency is a dev-ops maturity concern, not a direct exploitable vulnerability. Report it for awareness but do not escalate.
 
 #### A10: SSRF (CWE-918)
 
@@ -338,6 +340,15 @@ Return findings in this exact format:
 - **Remediation**: {specific fix with code example if possible}
 ```
 
+### CWE Quick Reference (use specific CWEs, avoid generic CWE-16)
+- Access Control: CWE-284, CWE-862, CWE-863
+- CORS: CWE-942 (Permissive Cross-domain Policy)
+- Error Exposure: CWE-209, CWE-200
+- Security Headers: CWE-693 (Protection Mechanism Failure)
+- Injection: CWE-79 (XSS), CWE-89 (SQLi), CWE-78 (OS Command)
+- Crypto: CWE-327, CWE-328, CWE-916
+- Logging: CWE-778, CWE-532
+
 ### Step 6: Summary
 
 ```
@@ -409,6 +420,7 @@ These are patterns that look like vulnerabilities but are NOT exploitable or are
 
 ## Important Notes
 
+- **CRITICAL: File Existence Verification** — Before reporting ANY finding, you MUST first confirm the file exists using Glob or Read. NEVER report vulnerabilities in files you haven't actually read. If a file path doesn't exist, skip that finding entirely.
 - **Always perform taint analysis** (Step 4) before reporting — a regex match
   without Source→Sink verification is insufficient
 - Read surrounding code context (30-50 lines) before reporting

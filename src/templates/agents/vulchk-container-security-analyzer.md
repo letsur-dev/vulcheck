@@ -70,6 +70,7 @@ FROM ubuntu|debian|centos|fedora  # Full OS images (prefer alpine/distroless)
 
 **Check**: Is a specific version tag or SHA digest used?
 **Recommended**: `FROM node:20-alpine` or `FROM node@sha256:...`
+**Severity**: Informational — mutable tags are a dev-ops reproducibility concern, not a direct security vulnerability. Note the risk of supply chain inconsistency but do not escalate.
 
 #### 2b. Privilege Issues
 
@@ -79,6 +80,15 @@ USER root              # Running as root (or no USER directive at all)
 
 **Check**: Does the Dockerfile contain a `USER` directive with a non-root user?
 If no USER directive exists, the container runs as root by default — HIGH severity.
+
+**Fix Prompt must include ownership verification**:
+When recommending a non-root user, the remediation MUST include:
+1. Creating a non-root user and group: `RUN addgroup -S appgroup && adduser -S appuser -G appgroup`
+2. Setting ownership of the application directory: `RUN chown -R appuser:appgroup /app`
+3. Switching to the non-root user: `USER appuser`
+4. A verification step: "After applying this fix, verify that the application can still read/write all required files and directories. Check that file permissions are correct with `ls -la` inside the container."
+
+This prevents common post-fix issues where the app fails because files are owned by root but the process runs as a non-root user.
 
 #### 2c. Secrets in Build
 
@@ -299,6 +309,7 @@ If a `vercel.json` or `next.config.js` with Vercel config is found:
 - **Severity**: Critical | High | Medium | Low
 - **Category**: Container Security
 - **Location**: {file_path}:{line_number}
+- **Practical Risk**: {High | Medium | Low | Theoretical} — {Explanation}
 - **Evidence**:
   ```{yaml|dockerfile}
   {relevant configuration snippet}
@@ -312,6 +323,17 @@ If a `vercel.json` or `next.config.js` with Vercel config is found:
 ```
 CONTAINER & CI/CD SECURITY ANALYSIS COMPLETE: {files_analyzed} files analyzed, {vuln_count} issues found ({critical} critical, {high} high, {medium} medium, {low} low)
 ```
+
+## Deployment Environment Awareness
+
+The agent prompt may include a `Deployment environment:` field. Use it to adjust analysis:
+
+| Deployment | Adjustments |
+|-----------|-------------|
+| **vercel** | Skip Dockerfile USER directive, resource limits, and .dockerignore checks (Vercel manages runtime). Focus on vercel.json security headers, rewrites, and function config. |
+| **k8s** | Full container + K8s analysis. Resource limits are important at pod spec level. |
+| **docker** | Full Dockerfile + docker-compose analysis. Resource limits via `deploy.resources.limits`. |
+| **other/custom** | Apply all checks with default severity. |
 
 ## Important Notes
 

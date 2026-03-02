@@ -77,9 +77,9 @@ describe('template validation', () => {
           expect(content).toContain('allowed-tools:');
         });
 
-        it('allowed-tools includes Task for sub-agent dispatch', () => {
+        it('allowed-tools includes Agent for sub-agent dispatch', () => {
           const content = fse.readFileSync(skillPath, 'utf-8');
-          expect(content).toMatch(/allowed-tools:.*Task/);
+          expect(content).toMatch(/allowed-tools:.*(Agent|Task)/);
         });
 
         it('contains report language reference', () => {
@@ -290,6 +290,12 @@ describe('template validation', () => {
       const config = fse.readJsonSync(join(TEMPLATES_DIR, 'config.json'));
       expect(config.language).toBe('en');
     });
+
+    it('includes deployment field with default value', () => {
+      const config = fse.readJsonSync(join(TEMPLATES_DIR, 'config.json'));
+      expect(config).toHaveProperty('deployment');
+      expect(config.deployment).toBe('other');
+    });
   });
 
   describe('finding format consistency', () => {
@@ -493,6 +499,104 @@ describe('template validation', () => {
       expect(content).toContain('**Practical Risk**');
       expect(content).toContain('CWE-798');
       expect(content).toContain('**References**');
+    });
+
+    it('secrets-scanner uses sonnet model', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-secrets-scanner.md'), 'utf-8');
+      const fm = parseFrontmatter(content);
+      expect(fm.model).toBe('sonnet');
+    });
+
+    it('git-history-auditor uses sonnet model', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-git-history-auditor.md'), 'utf-8');
+      const fm = parseFrontmatter(content);
+      expect(fm.model).toBe('sonnet');
+    });
+
+    it('code-pattern-scanner includes File Existence Verification instruction', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-code-pattern-scanner.md'), 'utf-8');
+      expect(content).toContain('File Existence Verification');
+    });
+
+    it('SKILL.md includes Confidence field in report format', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('**Confidence**');
+    });
+
+    it('SKILL.md includes Fix Prompt Generation Rules', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Fix Prompt Generation Rules');
+    });
+
+    it('SKILL.md includes Agent Result Validation', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Agent Result Validation');
+    });
+
+    it('SKILL.md uses Agent tool instead of Task tool', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('Task tool');
+      expect(content).toContain('Agent tool');
+    });
+
+    it('container-security-analyzer includes Practical Risk in finding format', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-container-security-analyzer.md'), 'utf-8');
+      expect(content).toContain('**Practical Risk**');
+    });
+
+    it('container-security-analyzer includes deployment environment awareness', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-container-security-analyzer.md'), 'utf-8');
+      expect(content).toContain('Deployment Environment Awareness');
+      expect(content).toContain('vercel');
+      expect(content).toContain('k8s');
+    });
+
+    it('container-security-analyzer mutable tags are Informational severity', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-container-security-analyzer.md'), 'utf-8');
+      expect(content).toMatch(/mutable tags.*Informational|Informational.*mutable tags|:latest.*Informational/is);
+    });
+
+    it('container-security-analyzer root fix prompt includes ownership verification', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-container-security-analyzer.md'), 'utf-8');
+      expect(content).toContain('ownership verification');
+      expect(content).toContain('chown');
+    });
+
+    it('code-pattern-scanner logging findings are Informational', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-code-pattern-scanner.md'), 'utf-8');
+      expect(content).toMatch(/A09.*Informational/);
+    });
+
+    it('SKILL.md includes Deployment-Aware Severity Adjustments', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Deployment-Aware Severity Adjustments');
+    });
+
+    it('SKILL.md reads deployment from config in Step 0', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('deployment');
+      expect(content).toContain('deployment environment');
+    });
+
+    it('SKILL.md includes Reference Hyperlink Rules', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Reference Hyperlink Rules');
+      expect(content).toContain('nvd.nist.gov');
+      expect(content).toContain('cwe.mitre.org');
+      expect(content).toContain('github.com/advisories');
+    });
+
+    it('SKILL.md Quick Fix List uses anchor links to detailed findings', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'skills', 'vulchk-codeinspector', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('anchor link');
+      expect(content).toContain('Back to Quick Fix List');
+    });
+
+    it('dependency-auditor includes hyperlinked references in finding format', () => {
+      const content = fse.readFileSync(join(TEMPLATES_DIR, 'agents', 'vulchk-dependency-auditor.md'), 'utf-8');
+      expect(content).toContain('nvd.nist.gov/vuln/detail');
+      expect(content).toContain('cwe.mitre.org/data/definitions');
+      expect(content).toContain('osv.dev/vulnerability');
     });
   });
 });

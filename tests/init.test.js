@@ -60,6 +60,22 @@ describe('file-ops', () => {
         expect(config.language).toBe(lang);
       }
     });
+
+    it('writes deployment field to config', () => {
+      const config = { language: 'en', deployment: 'vercel', version: '0.1.0' };
+      writeConfig(TEST_DIR, config);
+
+      const written = readConfig(TEST_DIR);
+      expect(written.deployment).toBe('vercel');
+    });
+
+    it('writes all deployment environments', () => {
+      for (const deploy of ['vercel', 'k8s', 'docker', 'other', 'AWS ECS']) {
+        writeConfig(TEST_DIR, { language: 'en', deployment: deploy, version: '0.1.0' });
+        const config = readConfig(TEST_DIR);
+        expect(config.deployment).toBe(deploy);
+      }
+    });
   });
 
   describe('readConfig', () => {

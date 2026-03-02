@@ -16,18 +16,19 @@
 
 ### 실행 전략 테이블
 
-5개 에이전트를 **모두 병렬**로 실행한다 (하나의 메시지에서 5개 Task 도구 호출).
+5개 에이전트를 **모두 병렬**로 실행한다 (하나의 메시지에서 5개 Agent 도구 호출).
 
 | 에이전트 | 모델 | 실행 방식 |
 |---------|------|---------|
 | dependency-auditor | sonnet | 병렬 |
 | code-pattern-scanner | sonnet | 병렬 |
-| secrets-scanner | haiku | 병렬 |
-| git-history-auditor | haiku | 병렬 |
+| secrets-scanner | sonnet | 병렬 |
+| git-history-auditor | sonnet | 병렬 |
 | container-security-analyzer | sonnet | 병렬 |
 
-> secrets-scanner와 git-history-auditor는 패턴 매칭 위주의 단순 작업이므로
-> haiku 모델을 사용하여 비용을 절감한다.
+> v0.1.0 초기에는 secrets-scanner와 git-history-auditor에 haiku 모델을
+> 사용했으나, 실전 테스트에서 도구 사용 실패(secrets-scanner) 및 비정상
+> 종료(git-history-auditor)가 발생하여 **sonnet으로 격상**했다.
 
 ## 전체 실행 시퀀스
 
@@ -45,7 +46,7 @@ sequenceDiagram
 
     rect rgb(240, 248, 255)
         Note over Skill: Step 0: 설정 읽기
-        Skill->>Skill: .vulchk/config.json → language, version
+        Skill->>Skill: .vulchk/config.json → language, deployment, version
     end
 
     rect rgb(255, 245, 245)
@@ -87,19 +88,19 @@ sequenceDiagram
     rect rgb(255, 248, 240)
         Note over Skill,A5: Step 4: 서브에이전트 병렬 실행
         par 에이전트 1
-            Skill->>A1: Task → vulchk-dependency-auditor
+            Skill->>A1: Agent → vulchk-dependency-auditor
             A1-->>Skill: DEP-{NNN} 발견 사항
         and 에이전트 2
-            Skill->>A2: Task → vulchk-code-pattern-scanner
+            Skill->>A2: Agent → vulchk-code-pattern-scanner
             A2-->>Skill: CODE-{NNN} 발견 사항
         and 에이전트 3
-            Skill->>A3: Task → vulchk-secrets-scanner
+            Skill->>A3: Agent → vulchk-secrets-scanner
             A3-->>Skill: SEC-{NNN} 발견 사항
         and 에이전트 4
-            Skill->>A4: Task → vulchk-git-history-auditor
+            Skill->>A4: Agent → vulchk-git-history-auditor
             A4-->>Skill: GIT-{NNN} 발견 사항
         and 에이전트 5 (조건부)
-            Skill->>A5: Task → vulchk-container-security-analyzer
+            Skill->>A5: Agent → vulchk-container-security-analyzer
             A5-->>Skill: CTR-{NNN} 발견 사항
         end
     end
@@ -115,9 +116,16 @@ sequenceDiagram
     end
 
     rect rgb(255, 240, 245)
+        Note over Skill: Step 5: 결과 검증
+        Skill->>Skill: 에이전트 결과 검증 (실패 시 재실행)
+        Skill->>Skill: 포맷 검증 (필수 필드 확인)
+    end
+
+    rect rgb(255, 240, 245)
         Note over Skill: Step 5b: 적대적 검증 (Adversarial Verification)
         Skill->>Skill: Sonnet 모델로 각 취약점의 실제 공격 가능성 검토
-        Skill->>Skill: 실무적 위험도(Practical Risk) 판정 및 오탐 제거
+        Skill->>Skill: 실무적 위험도(Practical Risk) + Confidence 판정 및 오탐 제거
+        Skill->>Skill: 배포 환경(deployment)별 심각도 조정 적용
     end
 
     rect rgb(240, 255, 240)
@@ -135,9 +143,26 @@ sequenceDiagram
 
 ```
 .vulchk/config.json 읽기
-  → 추출: language (en|ko), version
-  → 파일 없으면: "en"으로 기본 설정, `vulchk init` 실행 권고 경고
+  → 추출: language (en|ko), deployment (vercel|k8s|docker|기타), version
+  → 파일 없으면: language="en", deployment="other"로 기본 설정, `vulchk init` 실행 권고 경고
 ```
+
+#### 배포 환경 (deployment) 활용
+
+`vulchk init` 시 사용자가 선택한 배포 환경이 분석 전반에 영향을 미친다:
+
+| 배포 환경 | 주요 조정 사항 |
+|-----------|-------------|
+| **vercel** | Dockerfile/K8s 관련 검사 스킵 (Vercel이 런타임 관리). vercel.json 보안 설정에 집중 |
+| **k8s** | 전체 컨테이너 + K8s 분석. 리소스 제한은 pod spec 수준에서 중요 |
+| **docker** | Dockerfile + docker-compose 전체 분석 |
+| **기타** | 모든 검사를 기본 심각도로 적용 |
+
+Step 5b(적대적 검증)에서 배포 환경별 심각도 조정 테이블을 적용한다:
+- Docker 가변 태그 → 모든 환경에서 **Informational** (개발 운영 이슈)
+- root 권한 실행 → Vercel에서 스킵, K8s/Docker에서 **High** (ownership 검증 포함)
+- 리소스 제한 미설정 → Vercel에서 스킵, K8s에서 **Medium**
+- 로깅 부족 → 모든 환경에서 **Informational**
 
 ### Step 1: Git 상태 확인 + 모드 결정
 
@@ -251,7 +276,7 @@ import하는 `api/users.js`, `api/orders.js` 등도 재분석해야 한다.
 
 ### Step 4: 서브에이전트 병렬 실행
 
-해당하는 모든 에이전트가 **하나의 메시지에서** (여러 Task 도구 호출)
+해당하는 모든 에이전트가 **하나의 메시지에서** (여러 Agent 도구 호출)
 실행된다. 즉, 동시에 병렬로 실행된다.
 
 INCREMENTAL 모드에서는 각 에이전트에 추가 컨텍스트를 전달한다:
@@ -438,7 +463,7 @@ flowchart TD
 
 ## 서브에이전트 3: Secrets Scanner
 
-**파일**: `vulchk-secrets-scanner.md` | **접두사**: `SEC-{NNN}` | **모델**: haiku | **도구**: Grep + Glob
+**파일**: `vulchk-secrets-scanner.md` | **접두사**: `SEC-{NNN}` | **모델**: sonnet | **도구**: Grep + Glob
 
 .gitignore 검증 (**파일 존재 연계** — 해당 파일이 실제로 존재할 때만 보고) → 비밀 파일 존재 확인 → 소스 코드 시크릿 Grep → 프론트엔드 노출 검사.
 테스트 파일의 발견 사항은 LOW로 하향 처리.
@@ -471,7 +496,7 @@ flowchart TD
 
 ## 서브에이전트 4: Git History Auditor
 
-**파일**: `vulchk-git-history-auditor.md` | **접두사**: `GIT-{NNN}` | **모델**: haiku | **도구**: Bash (git log -p -S)
+**파일**: `vulchk-git-history-auditor.md` | **접두사**: `GIT-{NNN}` | **모델**: sonnet | **도구**: Bash (git log -p -S)
 
 커밋 diff에서 시크릿 패턴 검색 (15+ 패턴: AWS, GitHub PAT, OpenAI, Stripe, Slack, SendGrid, Supabase, DB 연결 문자열 등). INCREMENTAL 모드에서는 새 커밋만 대상.
 HEAD에 여전히 존재하면 CRITICAL, 이력에만 남아있으면 HIGH.
@@ -587,17 +612,32 @@ flowchart TD
 
 ### 빠른 수정 목록
 
-리포트 상단에 위치하여 개발자가 바로 코드를 찾아갈 수 있도록 한다:
+리포트 상단에 위치하여 개발자가 바로 코드를 찾아갈 수 있도록 한다.
+`#` 컬럼은 아래 상세 발견 사항의 해당 섹션으로 이동하는 **앵커 링크**를 포함한다.
+각 상세 발견 사항 하단에는 `↑ 목차로 돌아가기` 링크가 포함되어 양방향 탐색을 지원한다.
 
 ```markdown
 ## 빠른 수정 목록
 
 | # | 심각도 | 위치 | 설명 |
 |---|--------|------|------|
-| 1 | Critical | `src/api/users.js:42` | SQL injection — 문자열 결합 |
-| 2 | Critical | `package.json:8` | express 4.17.1 — CVE-2024-xxxxx |
-| 3 | High | `.gitignore` | .env 항목 누락 |
+| [1](#code-001-sql-injection) | Critical | `src/api/users.js:42` | SQL injection — 문자열 결합 |
+| [2](#dep-001-express-4171--cve-2024-xxxxx) | Critical | `package.json:8` | express 4.17.1 — CVE-2024-xxxxx |
+| [3](#sec-001-env-항목-누락) | High | `.gitignore` | .env 항목 누락 |
 ```
+
+### 참조 하이퍼링크
+
+모든 CVE, CWE, GHSA 참조에 외부 링크를 포함한다:
+
+| 참조 유형 | URL 패턴 | 예시 |
+|----------|---------|------|
+| CVE | `https://nvd.nist.gov/vuln/detail/{ID}` | [CVE-2024-43796](https://nvd.nist.gov/vuln/detail/CVE-2024-43796) |
+| CWE | `https://cwe.mitre.org/data/definitions/{NUM}.html` | [CWE-79](https://cwe.mitre.org/data/definitions/79.html) |
+| GHSA | `https://github.com/advisories/{ID}` | [GHSA-qw6h-vgh9-j6wx](https://github.com/advisories/GHSA-qw6h-vgh9-j6wx) |
+| OSV | `https://osv.dev/vulnerability/{ID}` | OSV 상세 페이지 |
+
+dependency-auditor는 OSV API 응답의 `references` 배열에서 ADVISORY URL을 추출하여 포함한다.
 
 ### 위치 형식 규칙
 

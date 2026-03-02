@@ -20,6 +20,13 @@ const LANGUAGES = [
   { name: 'ko', message: '한국어 (Korean)' },
 ];
 
+const DEPLOYMENTS = [
+  { name: 'vercel', message: 'Vercel (Serverless)' },
+  { name: 'k8s', message: 'Kubernetes (EKS, GKE, AKS, etc.)' },
+  { name: 'docker', message: 'Docker (standalone containers)' },
+  { name: 'other', message: 'Other (custom environment)' },
+];
+
 function printBanner() {
   console.log();
   console.log(chalk.bold.red('  ╦  ╦┬ ┬┬  ╔═╗┬ ┬┬┌─'));
@@ -38,7 +45,7 @@ export async function initCommand(options) {
   if (isInitialized(projectRoot) && !options.force) {
     const existing = readConfig(projectRoot);
     console.log(chalk.yellow('  VulChk is already initialized in this project.'));
-    console.log(chalk.dim(`  Current config: language=${existing?.language || 'unknown'}`));
+    console.log(chalk.dim(`  Current config: language=${existing?.language || 'unknown'}, deployment=${existing?.deployment || 'unknown'}`));
     console.log();
 
     const enquirer = new Enquirer();
@@ -80,9 +87,35 @@ export async function initCommand(options) {
     process.exit(1);
   }
 
+  // Determine deployment environment
+  let deployment = options.deploy;
+
+  if (!deployment) {
+    const enquirer = new Enquirer();
+    const response = await enquirer.prompt({
+      type: 'select',
+      name: 'deployment',
+      message: 'Select primary deployment environment',
+      choices: DEPLOYMENTS,
+    });
+    deployment = response.deployment;
+  }
+
+  // Handle "other" — prompt for custom input
+  if (deployment === 'other') {
+    const enquirer = new Enquirer();
+    const response = await enquirer.prompt({
+      type: 'input',
+      name: 'customDeployment',
+      message: 'Enter your deployment environment (e.g., AWS ECS, Fly.io)',
+    });
+    deployment = response.customDeployment || 'other';
+  }
+
   // Write config
   const config = {
     language,
+    deployment,
     version: pkg.version,
   };
 
