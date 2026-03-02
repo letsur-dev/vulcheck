@@ -4,7 +4,7 @@
   "description": "Security analysis toolkit for Claude Code - code inspection and penetration testing via slash commands",
   "type": "module",
   "bin": {
-    "vulchk": "./bin/vulchk.js"
+    "vulchk": "bin/vulchk.js"
   },
   "main": "src/index.js",
   "files": [
@@ -35,7 +35,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/letsur-dev/vulcheck.git"
+    "url": "git+https://github.com/letsur-dev/vulcheck.git"
   },
   "dependencies": {
     "commander": "^13.1.0",
