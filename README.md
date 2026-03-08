@@ -70,7 +70,7 @@ Node.js, React/Next.js (Vercel 포함), FastAPI 프로젝트에 대해 특화된
 
 주요 기능:
 - **3단계 강도 선택** — Passive (정찰만), Active (안전한 프로빙), Aggressive (익스플로잇)
-- **다중 벡터 테스트** — HTTP 요청, API 프로빙, 브라우저 자동화 (ratatosk-cli)
+- **다중 벡터 테스트** — HTTP 요청, API 프로빙, 브라우저 자동화 (Playwright)
 - **공격 계획 승인** — 어떤 요청도 보내기 전에 테스트 계획을 검토하고 승인
 - **코드 인스펙터 연동** — 사전 코드 점검 결과를 활용하여 공격 벡터 우선순위 결정
 - **인증 확인** — 외부 타겟에 대해 경고 및 명시적 확인 요구
@@ -125,25 +125,17 @@ vulchk --help            # 도움말 표시
 
 ## 브라우저 자동화
 
-브라우저 기반 침투 테스트를 위해 [ratatosk-cli](https://github.com/letsur-dev/huginn)를 설치하세요:
+브라우저 기반 침투 테스트를 위해 [Playwright](https://playwright.dev/)를 설치하세요:
 
 ```bash
-# 1. GitHub Packages 레지스트리 설정 (.npmrc에 추가)
-echo "@letsur-dev:registry=https://npm.pkg.github.com/" >> ~/.npmrc
-echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> ~/.npmrc
+# 1. Playwright 설치
+npm install playwright
 
-# 2. ratatosk-cli 설치 (둘 중 하나 선택)
-npm install -g @letsur-dev/ratatosk-cli   # 글로벌 설치
-npm install @letsur-dev/ratatosk-cli       # 로컬 설치
-
-# 3. 브라우저 설치
-GITHUB_TOKEN=YOUR_GITHUB_TOKEN npx ratatosk install
-
-# 4. 스킬 설치
-npx ratatosk install --skills
+# 2. 브라우저 설치
+npx playwright install chromium
 ```
 
-ratatosk-cli가 설치되지 않은 경우, VulChk는 HTTP 기반 테스트만 수행합니다.
+Playwright가 설치되지 않은 경우, VulChk는 HTTP 기반 테스트만 수행합니다.
 
 ## 요구 사항
 

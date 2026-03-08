@@ -125,11 +125,11 @@ describe('template validation', () => {
         expect(content).toContain('Authorization Required');
       });
 
-      it('contains ratatosk-cli detection', () => {
+      it('contains playwright detection', () => {
         const skillPath = join(TEMPLATES_DIR, 'skills', 'vulchk-hacksimulator', 'SKILL.md');
         const content = fse.readFileSync(skillPath, 'utf-8');
-        expect(content).toContain('npm list');
-        expect(content).toContain('@letsur-dev/ratatosk-cli');
+        expect(content).toContain('npx playwright --version');
+        expect(content).toContain('PLAYWRIGHT_AVAILABLE');
       });
 
       it('requires attack plan approval', () => {

@@ -83,17 +83,17 @@ themselves are always in English.
 | **Active** | Basic vulnerability probing | XSS/SQLi payload testing, CSRF token validation, auth bypass attempts, IDOR checks, file upload testing |
 | **Aggressive** | Full penetration attempt | Brute-force paths, parameter fuzzing, session manipulation, race conditions, chained exploits |
 
-### D8: ratatosk-cli Integration Pattern
+### D8: Playwright Integration Pattern
 
-**Decision**: The hack simulator skill checks for ratatosk
-availability at runtime. It does NOT bundle or install ratatosk.
+**Decision**: The hack simulator skill checks for Playwright
+availability at runtime. It does NOT bundle or install Playwright.
 
 **Flow**:
-1. Skill runs `which ratatosk` via Bash tool
-2. If found, checks `.claude/skills/ratatosk/SKILL.md` exists
-3. If skills missing, prompts user to run `ratatosk install --skills`
-4. If ratatosk not found, prompts installation and falls back
-5. Browser tests use ratatosk skill's MCP tools for navigation,
+1. Skill runs `npx playwright --version` via Bash tool
+2. If found, checks browser binaries are installed
+3. If browsers missing, prompts user to run `npx playwright install chromium`
+4. If Playwright not found, prompts installation and falls back
+5. Browser tests use Playwright for navigation,
    DOM interaction, network interception, and screenshot capture
 
 ### D9: Config Schema

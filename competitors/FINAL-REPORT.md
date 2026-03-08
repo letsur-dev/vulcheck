@@ -49,7 +49,7 @@
 |------|------|--------------|
 | **제로 설정** | `npx vulchk` → 슬래시 명령어로 즉시 실행 | SecureVibes만 유사 (`pip install`) |
 | **5개 에이전트 병렬 실행** | SCA+Secrets+Code+Container+Git History 동시 분석 | SecureVibes는 순차 실행만 |
-| **브라우저 기반 DAST** | ratatosk-cli 통한 DOM 기반 XSS 등 테스트 | 경쟁사 중 유일 |
+| **브라우저 기반 DAST** | Playwright 통한 DOM 기반 XSS 등 테스트 | 경쟁사 중 유일 |
 | **사용자 승인 게이트** | attack-planner → 사용자 승인 → executor | Claude Code Security만 유사 (HITL) |
 | **무료 접근** | Claude Code 사용자면 누구나 사용 | Claude Code Security는 Enterprise 전용 |
 | **다국어 리포트** | 한국어/영어 지원 | 경쟁사 없음 |

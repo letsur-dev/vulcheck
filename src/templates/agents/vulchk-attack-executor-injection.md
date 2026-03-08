@@ -18,7 +18,7 @@ You will receive:
 - **Target URL**: The URL to test
 - **Phase**: `injection`
 - **Workspace**: Path to `.vulchk/hacksim/` directory
-- **ratatosk available**: Whether browser automation is available
+- **playwright available**: Whether browser automation is available
 - **Approved attack plan**: The plan to execute
 - **Scenarios filter** (optional): List of AS-{NNN} IDs to execute
 
@@ -66,7 +66,7 @@ Unescaped probe in response = confirmed XSS.
 
 **Severity**: HIGH (stored XSS: CRITICAL)
 
-If ratatosk available, verify via browser for script execution + screenshot evidence.
+If playwright available, verify via browser for script execution + screenshot evidence.
 
 ### 2b. SQL Injection Testing
 

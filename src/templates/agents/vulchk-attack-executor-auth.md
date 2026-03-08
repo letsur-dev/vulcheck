@@ -18,7 +18,7 @@ You will receive:
 - **Target URL**: The URL to test
 - **Phase**: `auth` or `app-logic`
 - **Workspace**: Path to `.vulchk/hacksim/` directory
-- **ratatosk available**: Whether browser automation is available
+- **playwright available**: Whether browser automation is available
 - **Approved attack plan**: The plan to execute
 - **Scenarios filter** (optional): List of AS-{NNN} IDs to execute
 

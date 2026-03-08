@@ -27,7 +27,7 @@
 - [ ] FR-017: Optional URL argument with local/URL prompt
 - [ ] FR-018: Per-run intensity selection (passive/active/aggressive)
 - [ ] FR-019: Attack plan display + user approval
-- [ ] FR-020: ratatosk-cli detection and install prompt
+- [ ] FR-020: Playwright detection and install prompt
 - [ ] FR-021: Multi-vector testing (browser/fetch/API)
 - [ ] FR-022: Prior codeinspector report leverage
 - [ ] FR-023: Attack attempt logging with timestamps
@@ -47,6 +47,6 @@
 - [ ] SC-003: Zero pre-approval requests in hack simulator
 - [ ] SC-004: No plaintext secrets in reports
 - [ ] SC-005: Parallel analysis faster than sequential
-- [ ] SC-006: Graceful ratatosk-cli fallback
-- [ ] SC-007: Graceful ratatosk-cli absence handling
+- [ ] SC-006: Graceful Playwright fallback
+- [ ] SC-007: Graceful Playwright absence handling
 - [ ] SC-008: Reports in configured language

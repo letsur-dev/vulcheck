@@ -115,7 +115,7 @@
 **도입 조건:**
 - 추가 인프라(Docker, VM) 요구 없음
 - 기존 curl/HTTP 기반 프로브의 검증 정확도 향상에 집중
-- ratatosk-cli 브라우저 테스트를 활용한 DOM 기반 검증 확대
+- Playwright 브라우저 테스트를 활용한 DOM 기반 검증 확대
 
 ### 3. JSON 구조화 출력
 

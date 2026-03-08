@@ -6,7 +6,7 @@
 ## 요약
 
 `/vulchk.hacksimulator` 스킬과 2개 서브에이전트(attack-planner, attack-executor)를
-구현했습니다. 스킬은 타겟 결정 → 인증 경고 → ratatosk 확인 → 강도 선택 →
+구현했습니다. 스킬은 타겟 결정 → 인증 경고 → Playwright 확인 → 강도 선택 →
 코드 인스펙터 리포트 참조 → 공격 계획 생성 → 사용자 승인 → 공격 실행 → 리포트
 생성 흐름을 따릅니다.
 
@@ -28,7 +28,7 @@
 - Step 0: config 읽기 (리포트 언어)
 - Step 1: 타겟 결정 — URL 제공 시 직접 사용, 미제공 시 로컬 실행 또는 URL 입력 선택
 - Step 2: 인증 경고 — 외부 타겟(localhost가 아닌 경우)에 대해 명시적 허가 확인
-- Step 3: ratatosk-cli 가용성 확인 (`which ratatosk` + 스킬 파일 확인)
+- Step 3: Playwright 가용성 확인 (`npx playwright --version` 확인)
 - Step 4: 스캔 강도 선택 (passive/active/aggressive) — 매 실행마다 선택
 - Step 5: 기존 codeinspector 리포트 참조 (있으면 활용, 없으면 런타임 정찰)
 - Step 6: attack-planner 에이전트 실행
@@ -67,7 +67,7 @@
 
 테스트 벡터 유형:
 - `http-fetch`: curl/fetch를 통한 HTTP 요청
-- `browser`: ratatosk-cli 브라우저 자동화
+- `browser`: Playwright 브라우저 자동화
 - `api-probe`: API 엔드포인트 직접 탐사
 
 ## 주요 결정 사항
@@ -94,7 +94,7 @@
 
 > - attack-executor의 테스트 페이로드는 모두 "vulchk-" 접두사를 사용하여
 >   테스트 데이터를 식별 가능하게 함
-> - ratatosk-cli가 없어도 HTTP 기반 테스트는 모두 가능 (브라우저 테스트만 스킵)
+> - Playwright가 없어도 HTTP 기반 테스트는 모두 가능 (브라우저 테스트만 스킵)
 > - 공격 로그는 모든 시도를 기록 (성공/실패 모두) — 감사 추적성 확보
 > - codeinspector 리포트가 있으면 코드 수준 취약점을 공격 벡터로 매핑하여
 >   우선순위가 높은 테스트부터 실행

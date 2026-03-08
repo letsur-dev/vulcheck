@@ -71,13 +71,13 @@ code inspector.
 ## Phase 3: Hack Simulator Skill ✅
 
 > **Purpose**: Full `/vulchk.hacksimulator` SKILL.md with attack
-> planning, ratatosk-cli integration, and multi-vector testing.
+> planning, Playwright integration, and multi-vector testing.
 > **Goal**: Running the slash command produces a penetration test
 > report after user-approved attack plan execution.
 
 **Description**: Write the hacksimulator SKILL.md with instructions
 for URL/no-URL flows, intensity selection, attack plan generation,
-ratatosk-cli detection, multi-vector testing, and attack logging.
+Playwright detection, multi-vector testing, and attack logging.
 Write the 2 sub-agent files for planning and execution.
 
 **Deliverables**:
@@ -88,8 +88,8 @@ Write the 2 sub-agent files for planning and execution.
 **Acceptance**:
 - Skill handles both URL-provided and no-URL flows
 - Intensity selection (passive/active/aggressive) is prompted each run
-- ratatosk-cli detection works (`which ratatosk` check)
-- If ratatosk missing, shows install message and falls back
+- Playwright detection works (`npx playwright --version` check)
+- If Playwright missing, shows install message and falls back
 - Attack plan is displayed and requires user approval
 - Prior codeinspector reports are referenced if available
 - All attack attempts are logged with timestamps

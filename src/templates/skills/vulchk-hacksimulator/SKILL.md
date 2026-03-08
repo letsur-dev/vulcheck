@@ -111,39 +111,31 @@ Penetration test aborted. Only test systems you own or have explicit authorizati
 
 For localhost targets, skip this warning (testing your own application).
 
-## Step 3: Check ratatosk-cli Availability
+## Step 3: Check Playwright Availability
 
-Check if ratatosk-cli is installed for browser automation:
+Check if Playwright is installed for browser automation:
 
 ```bash
-npm list -g @letsur-dev/ratatosk-cli 2>/dev/null && echo "FOUND" || npm list @letsur-dev/ratatosk-cli 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"
+npx playwright --version 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"
 ```
 
-If FOUND, check if skills are installed:
+If FOUND, check if browsers are installed:
 ```bash
-ls .claude/skills/ratatosk/ 2>/dev/null && echo "SKILLS_OK" || echo "NO_SKILLS"
+npx playwright install --dry-run 2>/dev/null && echo "BROWSERS_OK" || echo "NO_BROWSERS"
 ```
 
-Set `RATATOSK_AVAILABLE` based on the result.
+Set `PLAYWRIGHT_AVAILABLE` based on the result.
 
-If NOT_FOUND or NO_SKILLS, note it for the user (do NOT block execution):
+If NOT_FOUND or NO_BROWSERS, note it for the user (do NOT block execution):
 ```
-**Note**: ratatosk-cli is not available. Browser-based testing will be skipped.
+**Note**: Playwright is not available. Browser-based testing will be skipped.
 To enable browser automation:
 
-  1. Add GitHub Packages registry to .npmrc:
-     echo "@letsur-dev:registry=https://npm.pkg.github.com/" >> ~/.npmrc
-     echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> ~/.npmrc
+  1. Install Playwright:
+     npm install playwright
 
-  2. Install ratatosk-cli (choose one):
-     npm install -g @letsur-dev/ratatosk-cli   # global install
-     npm install @letsur-dev/ratatosk-cli       # local install
-
-  3. Install browser:
-     GITHUB_TOKEN=YOUR_GITHUB_TOKEN npx ratatosk install
-
-  4. Install skills:
-     npx ratatosk install --skills
+  2. Install browsers:
+     npx playwright install chromium
 
 Proceeding with HTTP-based testing only.
 ```
@@ -308,7 +300,7 @@ Prompt: "Generate an attack plan for the following target:
 
 Target URL: {url}
 Intensity: {passive|active|aggressive}
-ratatosk available: {yes|no}
+playwright available: {yes|no}
 Workspace: .vulchk/hacksim/
 Mode: {FULL|INCREMENTAL}
 Detected stack: {from Step 1 or codeinspector report}
@@ -417,7 +409,7 @@ Each phase maps to a specialized agent:
 | business-logic | vulchk-attack-executor-business | Pass 1 |
 | api | vulchk-attack-executor-business | Pass 1 |
 | (BaaS detected) | vulchk-attack-executor-baas | Pass 1 |
-| (browser phases) | same as HTTP agent + ratatosk flag | Pass 2 |
+| (browser phases) | same as HTTP agent + playwright flag | Pass 2 |
 | exploitation, advanced, post-exploit | vulchk-attack-executor-exploit | Pass 3 |
 
 ### Common Prompt Template
@@ -432,7 +424,7 @@ Target URL: {url}
 Intensity: {intensity}
 Phase: {phase}
 Workspace: .vulchk/hacksim/
-ratatosk available: {yes|no}
+playwright available: {yes|no}
 {If incremental}: Scenarios filter: {comma-separated AS-NNN IDs for this phase}
 
 Read attack scenarios from .vulchk/hacksim/attack-scenarios.md
@@ -484,9 +476,9 @@ sort -u -o .vulchk/hacksim/cookies.txt .vulchk/hacksim/cookies.txt
 
 ### Pass 2 — Browser phases (sequential)
 
-Only if `RATATOSK_AVAILABLE` is true. Check which phases have `Browser Required: yes`
+Only if `PLAYWRIGHT_AVAILABLE` is true. Check which phases have `Browser Required: yes`
 scenarios. Launch the **same agent from the routing table** but with
-`ratatosk available: yes` and write to `phase-{N}-{phase}-browser.md`.
+`playwright available: yes` and write to `phase-{N}-{phase}-browser.md`.
 Add: "Execute ONLY scenarios with 'Browser Required: yes'."
 
 **Pass 2 phases run sequentially** (one at a time).
@@ -598,7 +590,7 @@ Translate all section headers using the language reference above.
 
 **Required sections** (in order):
 
-1. **Header**: Title, Date, Target, Intensity, Base Commit (`{short_hash}` — {commit_subject}), VulChk Version, ratatosk-cli status
+1. **Header**: Title, Date, Target, Intensity, Base Commit (`{short_hash}` — {commit_subject}), VulChk Version, Playwright status
 2. **{Executive Summary}**: Finding counts by severity + 2-3 sentence summary
 3. **{Test Result Summary}**:
    a. **{Vulnerable (Action Required)}**: `| # | Severity | Practical Risk | Endpoint | Description |`
@@ -611,7 +603,7 @@ Translate all section headers using the language reference above.
 8. **{Methodology}**:
    - {Execution Summary}: Table — `| # | {Phase} | {Duration} | {Tests} | {Findings} | {Vector} |` from methodology JSONs
    - {Attack Scenario Coverage}: Table — `| AS-# | {Scenario} | {Phase} | {Result} | {Finding} |`
-   - {Tools Used}: curl + ratatosk (if available)
+   - {Tools Used}: curl + Playwright (if available)
 9. **{Coverage Notes}**: {Tests Performed}, {Tests Skipped}, {Limitations}
 10. **{Recommendations}**: Top 3-5 prioritized recommendations
     - Include a **{Positive Findings}** subsection: items the app handles correctly (input validation working, CORS restrictions enforced, etc.)
@@ -711,7 +703,7 @@ first 4 and last 4 characters with `****` in between.
 - NEVER send any request to the target before the attack plan is approved
 - ALWAYS display the authorization warning for non-localhost targets
 - Log EVERY test attempt — both successful and failed — with timestamps
-- If ratatosk-cli is not available, proceed with HTTP-based testing only
+- If Playwright is not available, proceed with HTTP-based testing only
 - Do NOT attempt brute-force attacks that could cause denial of service
 - If a test causes an error or the target becomes unresponsive, pause and
   inform the user before continuing

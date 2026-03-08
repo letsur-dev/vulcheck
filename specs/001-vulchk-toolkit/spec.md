@@ -120,14 +120,14 @@ and produces a penetration test report.
 
 3. **Given** the user selects intensity and approves the attack plan,
    **When** the simulation runs, **Then** it tests via multiple
-   vectors (browser automation via ratatosk-cli, HTTP fetch requests,
+   vectors (browser automation via Playwright, HTTP fetch requests,
    API endpoint probing) and logs every attempt with timestamps.
 
-4. **Given** ratatosk-cli is not installed, **When** the hack
+4. **Given** Playwright is not installed, **When** the hack
    simulator attempts browser-based testing, **Then** it displays
-   a message asking the user to install ratatosk-cli and run
-   `ratatosk install --skills`, and falls back to non-browser
-   methods only.
+   a message asking the user to install Playwright
+   (`npm install playwright && npx playwright install chromium`),
+   and falls back to non-browser methods only.
 
 ---
 
@@ -209,10 +209,10 @@ directory with all required sections.
   The tool MUST report the connection failure, suggest possible
   causes, and halt gracefully without retrying indefinitely.
 
-- What happens when ratatosk-cli is installed but its skills are
-  not? The tool MUST detect this via `which ratatosk` succeeding
-  but skill files being absent, and prompt the user to run
-  `ratatosk install --skills`.
+- What happens when Playwright is installed but browsers are not?
+  The tool MUST detect this via `npx playwright --version` succeeding
+  but browser binaries being absent, and prompt the user to run
+  `npx playwright install chromium`.
 
 - How does the system handle extremely large repositories? The tool
   MUST use sub-agents to parallelize analysis and provide progress
@@ -319,12 +319,12 @@ directory with all required sections.
 - **FR-019**: System MUST present an attack plan to the user and
   await explicit approval before sending any request to the target.
 
-- **FR-020**: System MUST use ratatosk-cli for browser-based
-  testing; if unavailable, prompt the user to install ratatosk-cli
-  and run `ratatosk install --skills`.
+- **FR-020**: System MUST use Playwright for browser-based
+  testing; if unavailable, prompt the user to install Playwright
+  and run `npx playwright install chromium`.
 
 - **FR-021**: System MUST test via multiple attack vectors:
-  browser automation (ratatosk-cli), HTTP fetch/curl requests, and
+  browser automation (Playwright), HTTP fetch/curl requests, and
   direct API endpoint probing.
 
 - **FR-022**: System MUST leverage prior `/vulchk.codeinspector`
@@ -403,7 +403,7 @@ directory with all required sections.
   compared to sequential execution for projects with more than 50
   source files.
 
-- **SC-007**: When ratatosk-cli is not installed, the tool clearly
+- **SC-007**: When Playwright is not installed, the tool clearly
   informs the user and falls back gracefully without crashing.
 
 - **SC-008**: Reports are generated in the language configured
@@ -423,7 +423,7 @@ directory with all required sections.
 - Users have explicit authorization to perform security testing on
   any targets they specify.
 
-- ratatosk-cli is an optional dependency; browser-based testing is
+- Playwright is an optional dependency; browser-based testing is
   degraded but functional without it.
 
 - The CLI tool (`vulchk`) is built with Node.js and uses enquirer

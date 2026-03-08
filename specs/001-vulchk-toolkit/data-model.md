@@ -166,7 +166,7 @@ vulchk CLI
   │
   ├── reads ──→ .vulchk/config.json (language)
   ├── reads ──→ ./security-report/codeinspector-*.md (if exists)
-  ├── checks ──→ ratatosk-cli availability
+  ├── checks ──→ Playwright availability
   ├── spawns ──→ vulchk-attack-planner (agent)
   ├── spawns ──→ vulchk-attack-executor (agent)
   └── writes ──→ ./security-report/hacksimulator-{timestamp}.md

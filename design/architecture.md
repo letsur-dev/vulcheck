@@ -348,7 +348,7 @@ const { copySync, ensureDirSync, existsSync, readJsonSync, writeJsonSync } = fse
 
 | 도구 | 사용 주체 | 필수 여부 | 폴백 |
 |------|---------|---------|------|
-| [ratatosk-cli](https://github.com/letsur-dev/huginn) | hacksimulator | 선택 | HTTP 전용 테스트 |
+| [Playwright](https://playwright.dev/) | hacksimulator | 선택 | HTTP 전용 테스트 |
 | `npm audit` | dependency-auditor | 선택 | OSV API 실패 시 사용 |
 | `pip-audit` | dependency-auditor | 선택 | OSV API 실패 시 사용 |
 | `govulncheck` | dependency-auditor | 선택 | OSV API 실패 시 사용 |

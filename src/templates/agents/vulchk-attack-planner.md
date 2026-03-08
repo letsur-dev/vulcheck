@@ -18,7 +18,7 @@ selected intensity level.
 You will receive:
 - **Target URL**: The URL to test
 - **Intensity**: passive, active, or aggressive
-- **ratatosk available**: Whether browser automation is available
+- **playwright available**: Whether browser automation is available
 - **Workspace**: Path to `.vulchk/hacksim/` directory for persistent output
 - **Mode**: `full` or `incremental`
 - **Prior codeinspector findings** (optional): Code-level vulnerabilities to target
@@ -244,7 +244,7 @@ Write 3 files to the workspace directory (persist across runs for incremental mo
 
 Required sections:
 - **Technology Stack**: Server, Framework, Frontend, CDN, Versions
-- **CSS Selectors** (only if ratatosk available): Login forms, Search inputs, File upload
+- **CSS Selectors** (only if playwright available): Login forms, Search inputs, File upload
 - **API Structure**: Table — `| Endpoint | Method | Auth Required | Parameters |`
 - **Database Attack Vectors**:
   - DB Type: SQL (PostgreSQL/MySQL/MSSQL/SQLite) / NoSQL (MongoDB/Redis/Elasticsearch/Firebase) / BaaS (Supabase/Firebase)
@@ -300,6 +300,6 @@ ATTACK PLAN GENERATION COMPLETE
 - Map ALL discovered endpoints even if not all will be tested
 - When codeinspector findings exist, prioritize those as they have confirmed
   code-level evidence
-- Note which tests require browser automation (ratatosk) vs HTTP-only
+- Note which tests require browser automation (Playwright) vs HTTP-only
 - Include estimated test count for each phase so the user can assess scope
 - Identify the most likely high-impact attack vectors and list them first

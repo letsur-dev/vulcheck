@@ -9,7 +9,7 @@ VulChk is an npm CLI tool that, upon `vulchk init`, installs Claude
 Code skills and agents into a project, enabling two slash commands:
 `/vulchk.codeinspector` (static code security analysis) and
 `/vulchk.hacksimulator` (simulated penetration testing). The tool
-uses sub-agents for parallel analysis, ratatosk-cli for browser
+uses sub-agents for parallel analysis, Playwright for browser
 automation, and outputs structured Markdown reports to
 `./security-report/`.
 
@@ -35,7 +35,7 @@ automation, and outputs structured Markdown reports to
 | 2. Authorized-Access-Only | PASS | Hack simulator requires user consent per session |
 | 3. Modular Skill Architecture | PASS | Two independent skills + shared sub-agents |
 | 4. Structured Reporting | PASS | `./security-report/` with severity + remediation |
-| 5. Defense-in-Depth Analysis | PASS | Multi-layer analysis, ratatosk-cli for browser |
+| 5. Defense-in-Depth Analysis | PASS | Multi-layer analysis, Playwright for browser |
 | 6. Plan-Driven Execution | PASS | codeinspector shows plan auto-proceed; hacksimulator requires approval |
 | 7. Minimal Footprint | PASS | Only `./security-report/` and `.vulchk/` written; no external deps at runtime |
 | 8. Transparent Methodology | PASS | Skills document all checks; findings cite CVE/CWE/OWASP |

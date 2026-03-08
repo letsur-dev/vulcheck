@@ -146,7 +146,7 @@ VulChk에는 이런 커스텀 스캔 프로필 기능이 없음.
 | **DAST (동적 테스트)** | X | X | **O — attack-executor** |
 | **Container/IaC 보안** | X | X | **O — container-cicd-scanner** |
 | **공격 시나리오 설계** | X | X | **O — attack-planner** |
-| **브라우저 기반 테스트** | X | X | **O — ratatosk-cli** |
+| **브라우저 기반 테스트** | X | X | **O — Playwright** |
 | **사용자 승인 게이트** | X (자동 실행) | X | O (planner → 승인 → executor) |
 | **PR 인라인 코멘트** | O | O — 핵심 기능 | X |
 | **Hard FP 규칙 필터** | 내장 (다단계 검증) | O — 정규식 기반 7개 카테고리 | △ — FP Precedents 12개 |

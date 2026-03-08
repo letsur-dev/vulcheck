@@ -101,7 +101,7 @@ sequenceDiagram
         Note over Skill: Step 0: 설정 읽기
         Note over Skill: Step 1: 타겟 결정
         Note over Skill: Step 2: 인가 경고 (외부 타겟일 때)
-        Note over Skill: Step 3: ratatosk-cli 확인
+        Note over Skill: Step 3: Playwright 확인
         Note over Skill: Step 4: 강도 선택
         Note over Skill: Step 4b: 워크스페이스 초기화
         Note over Skill: Step 5: codeinspector 리포트 확인
@@ -155,7 +155,7 @@ sequenceDiagram
     end
 
     rect rgb(248, 240, 255)
-        Note over Skill,ExBrowser: Step 8 Pass 2: 브라우저 (순차, ratatosk 필요)
+        Note over Skill,ExBrowser: Step 8 Pass 2: 브라우저 (순차, Playwright 필요)
         Skill->>ExBrowser: Task → browser 테스트
         ExBrowser-->>Skill: 결과 파일
     end
@@ -227,19 +227,18 @@ flowchart TD
     Confirm -->|아니오| Abort["중단:<br>Penetration test aborted"]
 ```
 
-### Step 3: ratatosk-cli 감지
+### Step 3: Playwright 감지
 
 ```bash
-npm list -g @letsur-dev/ratatosk-cli 2>/dev/null && echo "FOUND" || \
-npm list @letsur-dev/ratatosk-cli 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"
+npx playwright --version 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"
 ```
 
-발견되면 추가 확인:
+발견되면 브라우저 설치 확인:
 ```bash
-ls .claude/skills/ratatosk/ 2>/dev/null && echo "SKILLS_OK" || echo "NO_SKILLS"
+npx playwright install --dry-run 2>/dev/null && echo "BROWSERS_OK" || echo "NO_BROWSERS"
 ```
 
-`RATATOSK_AVAILABLE` 플래그를 설정한다. 미설치 시 HTTP 전용 테스트로
+`PLAYWRIGHT_AVAILABLE` 플래그를 설정한다. 미설치 시 HTTP 전용 테스트로
 진행하며, 설치 안내 메시지를 표시한다.
 
 ### Step 4: 강도 선택
@@ -569,7 +568,7 @@ attack-executor는 **모든 HTTP 응답**에서 다음 토큰을 명시적으로
 
 벡터 종류:
 - `http-fetch` — curl/fetch HTTP 요청
-- `browser` — ratatosk-cli 브라우저 자동화
+- `browser` — Playwright 브라우저 자동화
 - `api-probe` — API 전용 테스트 (GraphQL, REST)
 
 ### 테스트 페이로드 규칙
@@ -675,9 +674,9 @@ flowchart TD
     P4 --> Merge
     P5 --> Merge
 
-    Merge --> HasRatatosk{"ratatosk<br>사용 가능?"}
-    HasRatatosk -->|예| Pass2["Pass 2: 브라우저 (순차)"]
-    HasRatatosk -->|아니오| CheckAggressive
+    Merge --> HasPlaywright{"Playwright<br>사용 가능?"}
+    HasPlaywright -->|예| Pass2["Pass 2: 브라우저 (순차)"]
+    HasPlaywright -->|아니오| CheckAggressive
 
     Pass2 --> CheckAggressive{"강도 ==<br>aggressive?"}
     CheckAggressive -->|예| Pass3["Pass 3: 익스플로잇 (순차)"]
@@ -794,6 +793,6 @@ hacksimulator 전용 추가 섹션:
 | 외부 네트워크 | OSV API만 | 타겟 URL + 정찰 |
 | 출력 접두사 | DEP/CODE/SEC/GIT/CTR | HSM |
 | 사전 데이터 | 없음 | codeinspector 리포트 활용 가능 |
-| 벡터 | Grep, Read, Bash | curl, ratatosk (브라우저) |
+| 벡터 | Grep, Read, Bash | curl, Playwright (브라우저) |
 | 증분 모드 | git diff 기반 (변경 파일만) | git diff 기반 (영향 시나리오만) |
 | 워크스페이스 | `.vulchk/codeinspector/` | `.vulchk/hacksim/` |

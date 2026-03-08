@@ -72,21 +72,22 @@ The tool will:
 1. Ask for scan intensity (passive / active / aggressive)
 2. Reference prior codeinspector reports if available
 3. Present an attack plan for your approval
-4. Execute approved tests via browser (ratatosk-cli) and HTTP
+4. Execute approved tests via browser (Playwright) and HTTP
 5. Generate a report at `./security-report/hacksimulator-{timestamp}.md`
 
-### Browser Testing (requires ratatosk-cli)
+### Browser Testing (requires Playwright)
 
-If ratatosk-cli is not installed, the hack simulator will prompt:
+If Playwright is not installed, the hack simulator will prompt:
 
 ```
-ratatosk-cli is required for browser-based analysis but was not found.
-Please install ratatosk-cli and then run:
+Playwright is required for browser-based analysis but was not found.
+Please install Playwright:
 
-  ratatosk install --skills
+  npm install playwright
+  npx playwright install chromium
 ```
 
-Without ratatosk-cli, testing falls back to HTTP-only methods.
+Without Playwright, testing falls back to HTTP-only methods.
 
 ## Report Location
 

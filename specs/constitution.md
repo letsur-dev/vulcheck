@@ -5,8 +5,8 @@ Previous: 1.0.0
 Ratified: 2026-03-01
 
 Modified principles:
-  - Principle 5 (Defense-in-Depth Analysis): added ratatosk-cli browser requirement
-  - Principle 7 (Minimal Footprint): added ratatosk-cli as optional external dependency
+  - Principle 5 (Defense-in-Depth Analysis): added Playwright browser requirement
+  - Principle 7 (Minimal Footprint): added Playwright as optional external dependency
 
 Sections added:
   - External Tool Dependencies
@@ -99,11 +99,11 @@ being overwhelmed by raw findings.
 - The hack simulator MUST test from the frontend entry point inward,
   using multiple attack vectors (browser-based, API calls, direct
   HTTP requests).
-- Browser-based site analysis MUST use ratatosk-cli for browser
-  automation. If the `ratatosk` command is not recognized, the skill
-  MUST prompt the user to install ratatosk-cli and then run
-  `ratatosk install --skills` to set up the required Claude Code
-  skills and agents.
+- Browser-based site analysis MUST use Playwright for browser
+  automation. If the `playwright` command is not available, the skill
+  MUST prompt the user to install Playwright (`npm install playwright`)
+  and then run `npx playwright install chromium` to set up the
+  required browser.
 - Analysis MUST consider the deployment context (Kubernetes, Docker)
   when evaluating container image security and orchestration
   configuration.
@@ -134,7 +134,7 @@ thoroughness and gives users visibility into what will happen.
 - The tool MUST NOT install external dependencies or modify the
   target project's files outside of `./security-report/`.
 - Analysis MUST rely on Claude Code's built-in tools (Read, Grep,
-  Glob, Bash, WebFetch, WebSearch), sub-agents, and ratatosk-cli
+  Glob, Bash, WebFetch, WebSearch), sub-agents, and Playwright
   for browser automation (the sole optional external dependency).
 - Temporary artifacts (if any) MUST be cleaned up after analysis
   completes.
@@ -200,34 +200,28 @@ When faced with technical choices:
 
 ## External Tool Dependencies
 
-### ratatosk-cli (browser automation)
+### Playwright (browser automation)
 
 - **Purpose**: Provides browser automation capabilities for the hack
   simulator to interact with target websites (navigation, form
   filling, DOM inspection, network interception, etc.).
 - **Required for**: `/vulchk.hacksimulator` browser-based analysis.
 - **Detection**: Before browser-based analysis, the skill MUST check
-  if the `ratatosk` command is available by running `which ratatosk`.
-- **Installation guidance**: If `ratatosk` is not found, the skill
+  if Playwright is available by running `npx playwright --version`.
+- **Installation guidance**: If Playwright is not found, the skill
   MUST display the following message and halt browser-based analysis:
 
   ```
-  ratatosk-cli is required for browser-based analysis but was not found.
-  Please install ratatosk-cli and then run:
+  Playwright is required for browser-based analysis but was not found.
+  Please install Playwright:
 
-    ratatosk install --skills
+    npm install playwright
+    npx playwright install chromium
 
-  This will set up the necessary Claude Code skills and agents for
-  browser automation.
+  This will set up the browser automation environment.
   ```
 
-- **Skill integration**: Once installed, `ratatosk install --skills`
-  places a `SKILL.md` at `.claude/skills/ratatosk/SKILL.md` and
-  agent files under `.claude/agents/`. The hack simulator MUST
-  leverage these ratatosk skills for all browser interactions
-  (clicking, typing, navigating, intercepting network requests,
-  capturing screenshots, etc.).
-- **Fallback**: If the user declines to install ratatosk-cli, the
+- **Fallback**: If the user declines to install Playwright, the
   hack simulator MUST fall back to non-browser methods only
   (HTTP fetch, curl-style requests, API probing) and clearly note
   in the report that browser-based testing was skipped.
